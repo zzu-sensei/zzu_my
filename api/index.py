@@ -6,8 +6,16 @@ import base64
 import hashlib
 import json
 import os
+from pathlib import Path
+import sys
 import time
 from typing import Any
+
+# Vercel imports this file from its function runtime directory, where the
+# repository root is not guaranteed to be present in sys.path.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import FastAPI, HTTPException, Query, Request, Response
