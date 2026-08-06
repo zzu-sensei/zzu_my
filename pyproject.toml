@@ -7,6 +7,8 @@ readme = "README.md"
 license = "MIT"
 dynamic = ["version"]
 dependencies = [
+    "cryptography>=45.0.0",
+    "fastapi>=0.116.0",
     "gmalg>=1.0.6",
     "httpx2>=2.3.0",
     "icalendar>=7.1.2",
@@ -15,6 +17,7 @@ dependencies = [
     "pydantic>=2.13.4",
     "pyjwt>=2.13.0",
     "typing-extensions>=4.12.2",
+    "uvicorn>=0.35.0",
     "whenever>=0.10.0",
 ]
 
