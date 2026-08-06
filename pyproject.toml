@@ -18,6 +18,12 @@ dependencies = [
     "whenever>=0.10.0",
 ]
 
+[project.scripts]
+zzu = "zzupy.cli:main"
+
+[project.gui-scripts]
+zzu-gui = "zzupy.gui:main"
+
 [project.optional-dependencies]
 develop = [
     "ruff>=0.15.16",

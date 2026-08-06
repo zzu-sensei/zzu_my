@@ -25,6 +25,8 @@ from zzupy.model.eas import (
     Semester,
     WeekIndexModel,
     CurrentSemesterModel,
+    Grade,
+    GradeModel,
     TeachingWeeks,
 )
 from zzupy.logging import build_http_event_hooks, log_http_response_body, logger
@@ -37,6 +39,9 @@ class UndergradEASClient:
     )
     COURSE_URL: Final[str] = (
         "https://jwxt.zzu.edu.cn/eams-micro-server/api/v1/lesson/student/course-table"
+    )
+    GRADE_URL: Final[str] = (
+        "https://jwxt.zzu.edu.cn/eams-micro-server/api/v1/grade/student/grades"
     )
     CURRENT_SEMESTER_URL: Final[str] = (
         "https://jwxt.zzu.edu.cn/eams-micro-server/api/v1/semester/current-semester"
@@ -298,7 +303,10 @@ class UndergradEASClient:
             raise ParsingError.from_exception(
                 exc,
                 "服务器响应格式不正确",
-                context={"url": url},
+                context={
+                    "url": url,
+                    "validation_errors": exc.errors(include_input=False),
+                },
             ) from exc
 
         teaching_weeks = []
@@ -314,6 +322,56 @@ class UndergradEASClient:
             teaching_weeks.append(teaching_week)
 
         return TeachingWeeks(teaching_weeks)
+
+    @require_auth
+    def get_grades(self) -> list[Grade]:
+        """获取当前学生的全部已发布成绩。"""
+        logger.info("尝试获取成绩数据...")
+        url = self.GRADE_URL
+        try:
+            headers = {"Authorization": self._require_user_token()}
+            response = self._client.get(url, headers=headers)
+            response.raise_for_status()
+            log_http_response_body(
+                url,
+                response.text,
+                content_type=response.headers.get("content-type"),
+            )
+            response_data = response.json()
+        except httpx2.HTTPStatusError as exc:
+            logger.error("{}请求返回失败状态码: {}", url, exc.response.status_code)
+            raise OperationError.from_http_status(
+                exc, "服务器返回错误状态", context={"url": url}
+            ) from exc
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.error("从 {} 响应中提取数据失败: {}", url, exc)
+            raise ParsingError.from_exception(
+                exc, "服务器响应格式不正确", context={"url": url}
+            ) from exc
+        except httpx2.RequestError as exc:
+            logger.error("{} 请求失败: {}", url, exc)
+            raise NetworkError.from_exception(
+                exc, "网络连接异常", context={"url": url}
+            ) from exc
+
+        if isinstance(response_data, dict) and response_data.get("result", 0) != 0:
+            message = response_data.get("msg") or response_data.get("message")
+            logger.error("服务器返回消息 {}", message)
+            raise OperationError(f"服务器返回消息 {message}")
+
+        try:
+            data = GradeModel.model_validate(response_data)
+        except ValidationError as exc:
+            logger.error("从 {} 响应中解析数据失败: {}", url, exc)
+            raise ParsingError.from_exception(
+                exc,
+                "成绩响应解析失败，接口字段可能已更新",
+                context={
+                    "url": url,
+                    "validation_errors": exc.errors(include_input=False),
+                },
+            ) from exc
+        return data.data
 
     @require_auth
     def get_week_index(self, date: Date) -> int | None:

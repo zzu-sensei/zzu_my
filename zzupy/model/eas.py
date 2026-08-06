@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Any, List, ClassVar
 
 from icalendar import Calendar
 from icalendar.cal import Event
-from pydantic import BaseModel, model_validator, ConfigDict, RootModel, Field
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    field_validator,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel
 from whenever import ZonedDateTime, Date, Instant, Time
 
@@ -43,83 +52,65 @@ class CultivateType(BaseModel):
 
 
 class PeriodInfo(BaseModel):
-    """课时详情，描述一门课程各类学时的分配情况"""
+    """课时详情；各分类课时可能由服务器返回数值或空值。"""
 
     model_config = ConfigDict(
         alias_generator=to_camel, populate_by_name=True, frozen=True
     )
 
-    total: int
-    """总学时"""
-    weeks: int
-    """开课周数"""
-    theory: int | None
-    """理论学时数"""
-    theory_unit: str | None
-    """理论学时单位"""
-    require_theory: int | None
-    """要求完成的理论学时数"""
-    practice: None
-    practice_unit: str | None
-    require_practice: None
-    focus_practice: None
-    focus_practice_unit: None
-    dispersed_practice: None
-    test: None
-    test_unit: None
-    require_test: None
-    experiment: int | None
-    """实验学时数"""
-    experiment_unit: str | None
-    """实验学时单位"""
-    require_experiment: int | None
-    """要求完成的实验学时数"""
-    machine: None
-    machine_unit: None
-    require_machine: None
-    design: None
-    design_unit: None
-    require_design: None
-    periods_per_week: int
-    """每周课时数"""
-    extra: None
-    extra_unit: None
-    require_extra: None
-
+    total: int = 0
+    weeks: int = 0
+    theory: int | None = None
+    theory_unit: str | None = None
+    require_theory: int | None = None
+    practice: int | None = None
+    practice_unit: str | None = None
+    require_practice: int | None = None
+    focus_practice: int | None = None
+    focus_practice_unit: str | None = None
+    dispersed_practice: int | None = None
+    test: int | None = None
+    test_unit: str | None = None
+    require_test: int | None = None
+    experiment: int | None = None
+    experiment_unit: str | None = None
+    require_experiment: int | None = None
+    machine: int | None = None
+    machine_unit: str | None = None
+    require_machine: int | None = None
+    design: int | None = None
+    design_unit: str | None = None
+    require_design: int | None = None
+    periods_per_week: int = 0
+    extra: int | None = None
+    extra_unit: str | None = None
+    require_extra: int | None = None
 
 class Course(BaseModel):
-    """课程基本信息"""
+    """课程基本信息；只将课表展示所需字段设为必填。"""
 
     model_config = ConfigDict(
         alias_generator=to_camel, populate_by_name=True, frozen=True
     )
 
-    id: int
-    code: str
+    id: int = 0
+    code: str = ""
     """课程编号"""
     name_zh: str
     """课程中文名"""
     name_en: str | None = None
     """课程英文名"""
-    credits: float
+    credits: float = 0
     """学分"""
-    period_info: PeriodInfo
-    """课时详情"""
-    theory: bool
-    """是否含理论课"""
-    experiment: bool
-    """是否含实验课"""
-    practice: bool
-    """是否含实践课"""
-    test: bool
-    """是否含考试课时"""
-    machine: bool
-    """是否含上机课"""
-    design: bool
-    """是否含设计课"""
-    extra: bool
-    """是否含其他课时类型"""
-
+    period_info: PeriodInfo | None = None
+    """课时详情；服务器可能省略。"""
+    theory: bool = False
+    experiment: bool = False
+    practice: bool = False
+    test: bool = False
+    machine: bool = False
+    design: bool = False
+    extra: bool = False
 
 class OpenDepartment(BaseModel):
     """开课院系"""
@@ -154,64 +145,51 @@ class CourseType(BaseModel):
 
 
 class DateTimeText(BaseModel):
-    """上课时间的文字描述"""
+    """上课时间的文字描述；文字字段可能为空。"""
 
     model_config = ConfigDict(
         alias_generator=to_camel, populate_by_name=True, frozen=True
     )
 
-    text_zh: str
-    """中文描述"""
-    text_en: str
-    """英文描述"""
-    text: str
-    """默认显示文本"""
+    text_zh: str | None = None
+    text_en: str | None = None
+    text: str | None = None
 
 
 class DateTimePlaceText(BaseModel):
-    """上课时间与地点的文字描述，如「1~16周 星期四 3~4节 主校区 北3_111」"""
+    """上课时间与地点的文字描述；文字字段可能为空。"""
 
     model_config = ConfigDict(
         alias_generator=to_camel, populate_by_name=True, frozen=True
     )
 
-    text_zh: str
-    """中文描述"""
-    text_en: str
-    """英文描述"""
-    text: str
-    """默认显示文本"""
+    text_zh: str | None = None
+    text_en: str | None = None
+    text: str | None = None
 
 
 class DateTimePlacePersonText(BaseModel):
-    """上课时间、地点与教师的文字描述，如「1~16周 星期四 3~4节 主校区 北3_111 王艳玲」"""
+    """上课时间、地点与教师的文字描述；文字字段可能为空。"""
 
     model_config = ConfigDict(
         alias_generator=to_camel, populate_by_name=True, frozen=True
     )
 
-    text_zh: str
-    """中文描述"""
-    text_en: str
-    """英文描述"""
-    text: str
-    """默认显示文本"""
+    text_zh: str | None = None
+    text_en: str | None = None
+    text: str | None = None
 
 
 class ScheduleText(BaseModel):
-    """教学班排课的综合文字描述，聚合了三个层次的描述信息"""
+    """教学班排课的综合文字描述。"""
 
     model_config = ConfigDict(
         alias_generator=to_camel, populate_by_name=True, frozen=True
     )
 
-    date_time_text: DateTimeText
-    """仅时间描述"""
-    date_time_place_text: DateTimePlaceText
-    """时间+地点描述"""
-    date_time_place_person_text: DateTimePlacePersonText
-    """时间+地点+教师描述"""
-
+    date_time_text: DateTimeText | None = None
+    date_time_place_text: DateTimePlaceText | None = None
+    date_time_place_person_text: DateTimePlacePersonText | None = None
 
 class ScheduleGroup(BaseModel):
     """排课组，将一个教学班的多次课归入同一组"""
@@ -260,7 +238,7 @@ class Room(BaseModel):
     """所在楼栋"""
     campus: Campus
     """所在校区"""
-    seat_number: None
+    seat_number: int | None = None
     """座位数"""
 
 
@@ -271,7 +249,7 @@ class Schedule(BaseModel):
         alias_generator=to_camel, populate_by_name=True, frozen=True
     )
 
-    schedule_group_id: int
+    schedule_group_id: int = 0
     """所属排课组 ID，关联 ScheduleGroup.id"""
     date: Date
     """上课日期，格式 "YYYY-MM-DD" """
@@ -283,15 +261,15 @@ class Schedule(BaseModel):
     """开始时间，格式 HHMM，如 1010 表示 10:10"""
     end_time: ZonedDateTime
     """结束时间，格式 HHMM，如 1150 表示 11:50"""
-    teacher_name: str
+    teacher_name: str = ""
     """授课教师中文姓名"""
-    teacher_name_en: str | None
+    teacher_name_en: str | None = None
     """授课教师英文姓名"""
     teacher_id: None | str = None
     person_id: None | str = None
     custom_place: None | str = None
     """自定义上课地点"""
-    room: Room | None
+    room: Room | None = None
     """教室信息"""
     start_unit: int
     """开始节次，如 3（第3节）"""
@@ -301,17 +279,17 @@ class Schedule(BaseModel):
     end_unit_name_zh: None | str = None
     start_unit_name_en: None | str = None
     end_unit_name_en: None | str = None
-    state: str
+    state: str = ""
     """课程状态"""
     week_index: int
     """本次课所在教学周，如 1 表示第1周"""
-    lesson_type: str
+    lesson_type: str = ""
     """课时类型，如 "THEORY"（理论课）"""
-    periods: int
+    periods: int = 0
     """本次课课时数，如 2"""
-    real_start_time: ZonedDateTime
+    real_start_time: ZonedDateTime | None = None
     """实际开始时间，格式同 startTime"""
-    real_end_time: ZonedDateTime
+    real_end_time: ZonedDateTime | None = None
     """实际结束时间，格式同 endTime"""
 
     @model_validator(mode="before")
@@ -342,7 +320,14 @@ class Schedule(BaseModel):
                 if isinstance(time_val, ZonedDateTime):
                     continue
 
-                time_str = str(time_val).strip().zfill(4)
+                time_str = str(time_val).strip()
+                if "T" in time_str:
+                    continue
+                if ":" in time_str:
+                    parts = time_str.split(":")
+                    time_str = parts[0].zfill(2) + parts[1].zfill(2)
+                else:
+                    time_str = time_str.zfill(4)
                 try:
                     schedule_time = Time.parse(time_str, format="hhmm")
                     data[key] = schedule_date.at(schedule_time).assume_tz(
@@ -357,64 +342,69 @@ class Schedule(BaseModel):
 
 
 class Datum(BaseModel):
-    """教学班信息，包含课程、排课等完整数据"""
+    """教学班信息；兼容服务器省略与课表无关的展示字段。"""
 
     model_config = ConfigDict(
         alias_generator=to_camel, populate_by_name=True, frozen=True
     )
 
-    id: int
-    """教学班 ID"""
-    biz_type_id: int
-    """业务类型 ID"""
-    campus: Campus
-    """开课校区"""
-    cultivate_type: CultivateType
-    """培养类型"""
-    code: str
-    """教学班编号"""
+    id: int = 0
+    biz_type_id: int = 0
+    campus: Campus | None = None
+    cultivate_type: CultivateType | None = None
+    code: str = ""
     course: Course
-    """课程基本信息"""
-    remark: None | str = None
-    """备注"""
-    schedule_state: str
-    """排课状态"""
-    std_count: int
-    """选课学生人数"""
-    open_department: OpenDepartment
-    """开课院系"""
-    course_type: CourseType
-    """课程类型"""
-    teacher_assignment_list: list[str]
-    """授课教师中文姓名列表"""
-    teacher_assignment_en_list: list[str | None]
-    """授课教师英文姓名列表"""
-    schedule_text: ScheduleText
-    """排课文字描述（时间/地点/教师）"""
-    schedule_groups: list[ScheduleGroup]
-    """排课组列表"""
-    schedules: list[Schedule]
-    """每次课的具体排课记录列表"""
-    students: list[Any]
-    """学生列表"""
-    time_table_layout_assoc: int
-    """关联的课表布局 ID"""
-    suggest_schedule_weeks_info: None
-    """建议排课周信息"""
-
+    remark: str | None = None
+    schedule_state: str = ""
+    std_count: int = 0
+    open_department: OpenDepartment | None = None
+    course_type: CourseType | None = None
+    teacher_assignment_list: list[str] = Field(default_factory=list)
+    teacher_assignment_en_list: list[str | None] = Field(default_factory=list)
+    schedule_text: ScheduleText | None = None
+    schedule_groups: list[ScheduleGroup] = Field(default_factory=list)
+    schedules: list[Schedule] = Field(default_factory=list)
+    students: list[Any] = Field(default_factory=list)
+    time_table_layout_assoc: int | None = None
+    suggest_schedule_weeks_info: Any | None = None
 
 class LessonModel(BaseModel):
-    """课程表查询 API 响应根模型"""
+    """课程表查询 API 响应根模型，兼容常见分页外壳。"""
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
-    result: int
-    """响应结果码"""
-    message: None | str = None
-    """响应消息"""
+    result: int = 0
+    message: str | None = None
     data: list[Datum]
-    """教学班数据列表"""
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_response(cls, data: Any) -> Any:
+        def find_records(value: Any, depth: int = 0) -> list[Any] | None:
+            if depth > 5:
+                return None
+            if isinstance(value, list):
+                return value
+            if not isinstance(value, dict):
+                return None
+            for key in ("data", "records", "rows", "content", "list", "items"):
+                if key in value:
+                    records = find_records(value[key], depth + 1)
+                    if records is not None:
+                        return records
+            return None
+
+        if isinstance(data, list):
+            return {"result": 0, "data": data}
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        records = find_records(data.get("data"))
+        if records is not None:
+            normalized["data"] = records
+        normalized.setdefault("result", data.get("code", 0))
+        normalized.setdefault("message", data.get("msg"))
+        return normalized
 
 class Lesson(BaseModel):
     """课表中的一节课"""
@@ -556,10 +546,10 @@ class TeachingWeek(BaseModel):
 
             # 起始时间
             start_time = (
-                schedule.real_start_time.to_stdlib() or schedule.start_time.to_stdlib()
+                (schedule.real_start_time or schedule.start_time).to_stdlib()
             )
             end_time = (
-                schedule.real_end_time.to_stdlib() or schedule.end_time.to_stdlib()
+                (schedule.real_end_time or schedule.end_time).to_stdlib()
             )
             event.add("dtstart", start_time)
             event.add("dtend", end_time)
@@ -573,7 +563,11 @@ class TeachingWeek(BaseModel):
             # 上课地点
             location = ""
             if schedule.room:
-                location = f"{schedule.room.campus.name_zh} {schedule.room.building.name_zh} {schedule.room.name_zh}"
+                location = (
+                    f"{schedule.room.campus.name_zh} "
+                    f"{schedule.room.building.name_zh} "
+                    f"{schedule.room.name_zh}"
+                )
             elif schedule.custom_place:
                 location = schedule.custom_place
 
@@ -649,11 +643,10 @@ class TeachingWeeks(RootModel):
 
                 # 起始时间
                 start_time = (
-                    schedule.real_start_time.to_stdlib()
-                    or schedule.start_time.to_stdlib()
+                    (schedule.real_start_time or schedule.start_time).to_stdlib()
                 )
                 end_time = (
-                    schedule.real_end_time.to_stdlib() or schedule.end_time.to_stdlib()
+                    (schedule.real_end_time or schedule.end_time).to_stdlib()
                 )
                 event.add("dtstart", start_time)
                 event.add("dtend", end_time)
@@ -667,7 +660,11 @@ class TeachingWeeks(RootModel):
                 # 上课地点
                 location = ""
                 if schedule.room:
-                    location = f"{schedule.room.campus.name_zh} {schedule.room.building.name_zh} {schedule.room.name_zh}"
+                    location = (
+                    f"{schedule.room.campus.name_zh} "
+                    f"{schedule.room.building.name_zh} "
+                    f"{schedule.room.name_zh}"
+                )
                 elif schedule.custom_place:
                     location = schedule.custom_place
 
@@ -690,24 +687,207 @@ class TeachingWeeks(RootModel):
         return cal
 
 
+class GradeSemester(BaseModel):
+    """成绩所属学期的简要信息。"""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, frozen=True
+    )
+
+    name_zh: str = "未知学期"
+    """学期中文名称。"""
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_semester(cls, data: Any) -> Any:
+        if isinstance(data, (str, int, float)):
+            return {"nameZh": str(data)}
+        if isinstance(data, dict):
+            normalized = dict(data)
+            if not normalized.get("nameZh"):
+                for key in ("name", "semesterName", "termName", "label"):
+                    if normalized.get(key) not in (None, ""):
+                        normalized["nameZh"] = str(normalized[key])
+                        break
+            return normalized
+        return {"nameZh": "未知学期"}
+
+
+class Grade(BaseModel):
+    """单门课程的成绩记录，兼容常见 EAMS 字段变体。"""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel, populate_by_name=True, frozen=True
+    )
+
+    course_name_zh: str = Field(
+        default="未知课程",
+        validation_alias=AliasChoices("courseNameZh", "courseName", "nameZh"),
+    )
+    """课程中文名称。"""
+    lesson_code: str = Field(
+        default="",
+        validation_alias=AliasChoices("lessonCode", "courseCode", "code"),
+    )
+    """教学班代码。"""
+    semester: GradeSemester = Field(
+        default_factory=GradeSemester,
+        validation_alias=AliasChoices(
+            "semester", "semesterName", "term", "termName"
+        ),
+    )
+    """成绩所属学期。"""
+    passed: bool | None = Field(
+        default=None,
+        validation_alias=AliasChoices("passed", "isPassed"),
+    )
+    """是否通过；服务端未给出时为 None。"""
+    final_grade: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("finalGrade", "score", "grade"),
+    )
+    """最终成绩；尚未发布时可能为空。"""
+    grade_detail: str = Field(
+        default="",
+        validation_alias=AliasChoices("gradeDetail", "detail", "scoreDetail"),
+    )
+    """平时、考试等分项成绩的服务端文本。"""
+    credits: float = Field(
+        default=0,
+        validation_alias=AliasChoices("credits", "credit"),
+    )
+    """课程学分。"""
+    gp: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("gp", "gpa", "gradePoint"),
+    )
+    """课程绩点；尚未核算时可能为空。"""
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_nested_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        course = normalized.get("course")
+        if isinstance(course, dict):
+            course_name = (
+                course.get("nameZh")
+                or course.get("name")
+                or course.get("courseName")
+            )
+            course_code = course.get("code") or course.get("courseCode")
+            if course_name not in (None, ""):
+                normalized.setdefault("courseNameZh", course_name)
+            if course_code not in (None, ""):
+                normalized.setdefault("courseCode", course_code)
+        return normalized
+
+    @field_validator("course_name_zh", mode="before")
+    @classmethod
+    def stringify_course_name(cls, value: Any) -> str:
+        return "未知课程" if value in (None, "") else str(value)
+
+    @field_validator("lesson_code", mode="before")
+    @classmethod
+    def stringify_lesson_code(cls, value: Any) -> str:
+        return "" if value is None else str(value)
+
+    @field_validator("final_grade", mode="before")
+    @classmethod
+    def stringify_final_grade(cls, value: Any) -> str | None:
+        return None if value in (None, "") else str(value)
+
+    @field_validator("credits", mode="before")
+    @classmethod
+    def normalize_credits(cls, value: Any) -> Any:
+        return 0 if value in (None, "") else value
+
+    @field_validator("gp", mode="before")
+    @classmethod
+    def normalize_gp(cls, value: Any) -> Any:
+        return None if value in (None, "") else value
+
+    @field_validator("passed", mode="before")
+    @classmethod
+    def normalize_passed(cls, value: Any) -> Any:
+        if value in (None, ""):
+            return None
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in {"是", "通过", "合格", "pass", "passed", "yes", "y"}:
+                return True
+            if lowered in {"否", "未通过", "不合格", "fail", "failed", "no", "n"}:
+                return False
+            return None
+        return value
+
+    @field_validator("grade_detail", mode="before")
+    @classmethod
+    def stringify_detail(cls, value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (dict, list)):
+            return json.dumps(value, ensure_ascii=False)
+        return str(value)
+
+
+class GradeModel(BaseModel):
+    """成绩查询 API 响应模型，兼容列表和分页嵌套结构。"""
+
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    result: int = 0
+    message: str | None = None
+    data: list[Grade] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_response(cls, data: Any) -> Any:
+        def find_records(value: Any, depth: int = 0) -> list[Any] | None:
+            if depth > 5:
+                return None
+            if isinstance(value, list):
+                return value
+            if not isinstance(value, dict):
+                return None
+            for key in ("data", "records", "rows", "content", "list", "items"):
+                if key in value:
+                    records = find_records(value[key], depth + 1)
+                    if records is not None:
+                        return records
+            return None
+
+        if isinstance(data, list):
+            return {"data": data}
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        normalized["data"] = find_records(data) or []
+        normalized.setdefault("result", data.get("code", 0))
+        normalized.setdefault("message", data.get("msg"))
+        return normalized
+
+
 class Semester(BaseModel):
-    """单个学期"""
+    """单个学期。"""
 
     model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
 
     id: int
-    code: str
+    code: str = ""
     name_zh: str
     name_en: str | None = None
-    school_year: str
+    school_year: str = ""
     start_date: Date
     end_date: Date
-    week_start_on_sunday: bool
-    count_in_term: bool
-    season: str
-    week_indices: list[int]
-    biz_types: None
-
+    week_start_on_sunday: bool = False
+    count_in_term: bool = True
+    season: str = ""
+    week_indices: list[int] = Field(default_factory=list)
+    biz_types: Any | None = None
 
 class SemesterModel(BaseModel):
     """获取全部学期数据 API 响应根模型"""
@@ -716,7 +896,7 @@ class SemesterModel(BaseModel):
 
     result: int
     """响应结果码"""
-    message: None
+    message: str | None = None
     """响应消息"""
     data: list[Semester]
     """学期数据列表"""
@@ -729,7 +909,7 @@ class CurrentSemesterModel(BaseModel):
 
     result: int
     """响应结果码"""
-    message: None
+    message: str | None = None
     """响应消息"""
     data: Semester
     """学期数据列表"""

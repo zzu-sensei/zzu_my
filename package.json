@@ -1,0 +1,23 @@
+{
+    "name":  "zzu-life-web",
+    "private":  true,
+    "version":  "0.1.0",
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "concurrently --kill-others-on-fail --names API,WEB \".venv\\Scripts\\python.exe -m uvicorn api.index:app --host 127.0.0.1 --port 8000\" \"vite\"",
+                    "build":  "vite build",
+                    "preview":  "vite preview",
+                    "dev:web":  "vite",
+                    "dev:api":  ".venv\\Scripts\\python.exe -m uvicorn api.index:app --host 127.0.0.1 --port 8000"
+                },
+    "dependencies":  {
+                         "@vitejs/plugin-react":  "latest",
+                         "lucide-react":  "latest",
+                         "vite":  "latest",
+                         "react":  "latest",
+                         "react-dom":  "latest"
+                     },
+    "devDependencies":  {
+                            "concurrently":  "latest"
+                        }
+}

@@ -6,6 +6,7 @@
 
 - 登录本科教务并校验当前账号可用性
 - 获取全部学期列表
+- 查询全部已发布成绩
 - 获取某个学期的全部教学周课表
 - 获取指定教学周课表
 - 根据日期查询教学周序数
@@ -45,6 +46,24 @@ with UndergradEASClient(cas) as eas:
 ## 登录行为
 
 `UndergradEASClient.login()` 会先请求用户信息，再缓存当前学期 ID。后续如果调用 `get_teaching_week()` 或 `get_teaching_weeks()` 时没有显式传入 `semester_id`，就会默认使用这个当前学期。
+
+## 成绩查询
+
+`get_grades()` 返回当前学生的全部已发布成绩，包含课程名称、教学班代码、学期、最终成绩、分项成绩、学分、绩点和是否通过：
+
+```python title="查询成绩"
+grades = eas.get_grades()
+
+for grade in grades:
+    print(
+        grade.semester.name_zh,
+        grade.course_name_zh,
+        grade.final_grade,
+        grade.gp,
+    )
+```
+
+接口返回全部学期的成绩；如需按学期展示，可根据 `grade.semester.name_zh` 在本地筛选。
 
 ## 课表查询
 
@@ -136,6 +155,7 @@ with open("semester.ics", "wb") as f:
 - `TeachingWeek`：单周课表，提供 `get()` / `get_day()` / `get_unit()` / `grid`
 - `TeachingWeeks`：多个 `TeachingWeek` 的容器，支持索引和遍历
 - `Semester`：学期元信息和 `week_indices`
+- `Grade`：单门课程的成绩、学分和绩点记录
 
 ## 异步版本
 
@@ -153,8 +173,9 @@ async def main():
 
     async with UndergradEASClient(cas) as eas:
         await eas.login()
-        week = await eas.get_teaching_week(week=1)
-        print(week.get(weekday=1, unit=1))
+        grades = await eas.get_grades()
+        for grade in grades:
+            print(grade.course_name_zh, grade.final_grade)
 
 
 asyncio.run(main())
