@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
-from typing import Any, List, ClassVar
+from typing import Any, ClassVar, List
 
 from icalendar import Calendar
 from icalendar.cal import Event
@@ -16,7 +17,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic.alias_generators import to_camel
-from whenever import ZonedDateTime, Date, Instant, Time
+from whenever import Date, Instant, Time, ZonedDateTime
 
 
 class Campus(BaseModel):
@@ -713,6 +714,87 @@ class GradeSemester(BaseModel):
         return {"nameZh": "未知学期"}
 
 
+_GRADE_COMPONENT_ALIASES = {
+    "grade_level": {
+        "gradelevel", "gradelevelname", "level", "graderank", "gradeclass",
+        "scorelevel", "gradingmode", "grademode", "gradetype",
+        "成绩等级", "等级", "层级", "成绩制",
+    },
+    "usual_grade": {
+        "usualgrade", "usualscore", "normalgrade", "normalscore",
+        "regulargrade", "regularscore", "dailygrade", "平时成绩", "平时",
+    },
+    "paper_grade": {
+        "papergrade", "paperscore", "examgrade", "examscore",
+        "finalexamgrade", "finalexamscore", "卷面成绩", "卷面",
+        "考试成绩", "期末成绩",
+    },
+    "experiment_grade": {
+        "experimentgrade", "experimentscore", "labgrade", "labscore",
+        "practicegrade", "practicescore", "实验成绩", "实验",
+    },
+}
+
+
+def _grade_detail_components(value: Any) -> dict[str, str]:
+    """Extract common grade components from JSON, list, or display text."""
+    result: dict[str, str] = {}
+
+    def normalized_key(raw: Any) -> str:
+        return re.sub(r"[\s_.:\-：]", "", str(raw)).lower()
+
+    def store(label: Any, score: Any) -> None:
+        if score in (None, ""):
+            return
+        key = normalized_key(label)
+        for field, aliases in _GRADE_COMPONENT_ALIASES.items():
+            if key in aliases:
+                result.setdefault(field, str(score))
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            label = next(
+                (
+                    node.get(key)
+                    for key in (
+                        "name", "label", "itemName", "typeName", "gradeTypeName"
+                    )
+                    if node.get(key) not in (None, "")
+                ),
+                None,
+            )
+            score = next(
+                (
+                    node.get(key)
+                    for key in ("score", "grade", "value", "result")
+                    if node.get(key) not in (None, "")
+                ),
+                None,
+            )
+            if label is not None:
+                store(label, score)
+            for key, item in node.items():
+                store(key, item)
+                if isinstance(item, (dict, list)):
+                    visit(item)
+        elif isinstance(node, list):
+            for item in node:
+                visit(item)
+
+    parsed = value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            for label, score in re.findall(
+                r"(成绩等级|等级|层级|平时成绩|平时|卷面成绩|卷面|考试成绩|期末成绩|实验成绩|实验)\s*[：:=]\s*([^,，;；\s]+)",
+                value,
+            ):
+                store(label, score)
+            return result
+    visit(parsed)
+    return result
+
 class Grade(BaseModel):
     """单门课程的成绩记录，兼容常见 EAMS 字段变体。"""
 
@@ -752,6 +834,36 @@ class Grade(BaseModel):
         validation_alias=AliasChoices("gradeDetail", "detail", "scoreDetail"),
     )
     """平时、考试等分项成绩的服务端文本。"""
+    grade_level: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "gradeLevel", "gradeLevelName", "level", "gradeRank", "gradeClass",
+            "scoreLevel", "gradingMode", "gradeMode", "gradeType",
+            "成绩等级", "等级", "层级", "成绩制",
+        ),
+    )
+    usual_grade: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "usualGrade", "usualScore", "normalGrade", "normalScore",
+            "regularGrade", "regularScore", "dailyGrade", "平时成绩",
+        ),
+    )
+    paper_grade: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "paperGrade", "paperScore", "examGrade", "examScore",
+            "finalExamGrade", "finalExamScore", "卷面成绩", "考试成绩",
+            "期末成绩",
+        ),
+    )
+    experiment_grade: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "experimentGrade", "experimentScore", "labGrade", "labScore",
+            "practiceGrade", "practiceScore", "实验成绩",
+        ),
+    )
     credits: float = Field(
         default=0,
         validation_alias=AliasChoices("credits", "credit"),
@@ -781,6 +893,16 @@ class Grade(BaseModel):
                 normalized.setdefault("courseNameZh", course_name)
             if course_code not in (None, ""):
                 normalized.setdefault("courseCode", course_code)
+        detail = next(
+            (
+                normalized.get(key)
+                for key in ("gradeDetail", "detail", "scoreDetail")
+                if normalized.get(key) not in (None, "")
+            ),
+            None,
+        )
+        for field, value in _grade_detail_components(detail).items():
+            normalized.setdefault(field, value)
         return normalized
 
     @field_validator("course_name_zh", mode="before")
@@ -798,6 +920,19 @@ class Grade(BaseModel):
     def stringify_final_grade(cls, value: Any) -> str | None:
         return None if value in (None, "") else str(value)
 
+    @field_validator(
+        "grade_level", "usual_grade", "paper_grade", "experiment_grade",
+        mode="before",
+    )
+    @classmethod
+    def stringify_grade_component(cls, value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, dict):
+            for key in ("nameZh", "name", "label", "value", "score"):
+                if value.get(key) not in (None, ""):
+                    return str(value[key])
+        return str(value)
     @field_validator("credits", mode="before")
     @classmethod
     def normalize_credits(cls, value: Any) -> Any:

@@ -353,12 +353,16 @@ function GradesView() {
               <summary><span><CalendarDays size={18} />{semester}</span><em>{items.length} 门课程</em></summary>
               <div className="grade-table-wrap">
                 <table className="data-table">
-                  <thead><tr><th>课程</th><th>成绩</th><th>绩点</th><th>学分</th><th>状态</th></tr></thead>
+                  <thead><tr><th>课程</th><th>总评</th><th>成绩等级</th><th>平时</th><th>卷面</th><th>实验</th><th>绩点</th><th>学分</th><th>状态</th></tr></thead>
                   <tbody>{items.map((grade, itemIndex) => (
-                    <tr key={`${grade.course}-${itemIndex}`}>
+                    <tr key={`${grade.course}-${itemIndex}`} title={grade.detail || undefined}>
                       <td>{grade.course}</td><td className="score-cell">{grade.score || "未发布"}</td>
+                      <td className="component-cell">{grade.level || "—"}</td>
+                      <td className="component-cell">{grade.usual_score || "—"}</td>
+                      <td className="component-cell">{grade.paper_score || "—"}</td>
+                      <td className="component-cell">{grade.experiment_score || "—"}</td>
                       <td>{grade.gp ?? "—"}</td><td>{grade.credits}</td>
-                      <td><span className={`status-pill ${grade.passed === false ? "fail" : "pass"}`}>{grade.passed === false ? "未通过" : "通过"}</span></td>
+                      <td><span className={`status-pill ${grade.passed === false ? "fail" : grade.passed === true ? "pass" : "pending"}`}>{grade.passed === false ? "未通过" : grade.passed === true ? "通过" : "待定"}</span></td>
                     </tr>
                   ))}</tbody>
                 </table>

@@ -6,9 +6,9 @@ import base64
 import hashlib
 import json
 import os
-from pathlib import Path
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 # Vercel imports this file from its function runtime directory, where the
@@ -24,7 +24,6 @@ from pydantic import BaseModel, Field
 
 from zzupy.app import CASClient, ECardClient, UndergradEASClient
 from zzupy.exception import ParsingError, ZZUError
-
 
 app = FastAPI(title="郑大生活助手 API", docs_url=None, redoc_url=None)
 COOKIE_NAME = "zzu_web_session"
@@ -354,6 +353,10 @@ def grades(request: Request) -> dict[str, Any]:
                     "semester": grade.semester.name_zh,
                     "course": grade.course_name_zh,
                     "score": grade.final_grade,
+                    "level": grade.grade_level,
+                    "usual_score": grade.usual_grade,
+                    "paper_score": grade.paper_grade,
+                    "experiment_score": grade.experiment_grade,
                     "gp": grade.gp,
                     "credits": grade.credits,
                     "passed": grade.passed,

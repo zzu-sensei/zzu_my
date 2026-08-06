@@ -59,9 +59,15 @@ for grade in grades:
         grade.semester.name_zh,
         grade.course_name_zh,
         grade.final_grade,
+        grade.grade_level,
+        grade.usual_grade,
+        grade.paper_grade,
+        grade.experiment_grade,
         grade.gp,
     )
 ```
+
+成绩分项可通过 `grade.grade_level`、`grade.usual_grade`、`grade.paper_grade` 和 `grade.experiment_grade` 读取。学校未发布对应分项时字段为 `None`；客户端不应根据总评自行推算。
 
 接口返回全部学期的成绩；如需按学期展示，可根据 `grade.semester.name_zh` 在本地筛选。
 
