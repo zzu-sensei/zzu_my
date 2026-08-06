@@ -40,9 +40,10 @@ async function api(path, options = {}) {
   });
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("application/json")) {
-    throw new Error(
-      "本地 API 没有启动。请在项目目录运行 npm run dev，并保持终端开启。",
-    );
+    const isLocal = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+    throw new Error(isLocal
+      ? `本地 API 未返回 JSON（HTTP ${response.status}）。请确认 npm run dev 的 API 进程仍在运行。`
+      : `Vercel API 未正确响应（HTTP ${response.status}）。请检查本次部署的 Functions 和运行日志。`);
   }
   const payload = await response.json();
   if (!response.ok) {
