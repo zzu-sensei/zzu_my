@@ -22,8 +22,8 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from zzupy.app import CASClient, ECardClient, UndergradEASClient
-from zzupy.exception import ParsingError, ZZUError
+from zzupy.app import CASClient, UndergradEASClient
+from zzupy.exception import ZZUError
 
 app = FastAPI(title="郑大生活助手 API", docs_url=None, redoc_url=None)
 COOKIE_NAME = "zzu_web_session"
@@ -128,88 +128,6 @@ def _cas_from_session(session: dict[str, Any]) -> CASClient:
     return cas
 
 
-def _full_room_id(level_id: str, room_id: object) -> str:
-    value = str(room_id).strip()
-    prefix = f"{level_id}-"
-    return value if value.startswith(prefix) else f"{prefix}{value}"
-
-
-def _full_level_id(building_id: str, level_id: object) -> str:
-    value = str(level_id).strip()
-    prefix = f"{building_id}--"
-    return value if value.startswith(prefix) else f"{prefix}{value}"
-
-
-def _room_key(name: object) -> str:
-    groups: list[str] = []
-    digits = ""
-    for character in str(name):
-        if character.isdigit():
-            digits += character
-        elif digits:
-            groups.append(digits)
-            digits = ""
-    if digits:
-        groups.append(digits)
-    return (groups[-1].lstrip("0") or "0") if groups else str(name).strip()
-
-
-def _meter_level(default_room: str, meter_type: str) -> str:
-    source_level = default_room.rpartition("-")[0]
-    building, code = source_level.split("--", 1)
-    target = "41" if meter_type == "照明" else "42"
-    return f"{building}--{target.zfill(len(code))}"
-
-
-def _read_energy(ecard: ECardClient, meter_id: str, meter_type: str) -> float:
-    try:
-        return ecard.get_remaining_energy(meter_id)
-    except ParsingError as exc:
-        if "quantity" not in exc.message:
-            raise
-        raise ValueError(f"{meter_type}电表没有返回剩余电量。") from exc
-
-
-def _meter_energy(
-    ecard: ECardClient, default_room: str, meter_type: str
-) -> tuple[str, float]:
-    source_level = default_room.rpartition("-")[0]
-    source_rooms = {
-        _full_room_id(source_level, key): str(value)
-        for key, value in ecard.get_room_dict(source_level).items()
-    }
-    source_name = source_rooms.get(default_room)
-    if source_name is None:
-        raise ValueError("账号默认寝室不在服务器房间目录中。")
-    preferred = _meter_level(default_room, meter_type)
-    if preferred == source_level:
-        return default_room, _read_energy(ecard, default_room, meter_type)
-    building = source_level.split("--", 1)[0]
-    levels = {
-        _full_level_id(building, key): str(value)
-        for key, value in ecard.get_room_dict(building).items()
-    }
-    levels.setdefault(preferred, meter_type)
-    source_key = _room_key(source_name)
-    candidates: list[tuple[str, str, str]] = []
-    for level_id, level_name in levels.items():
-        if level_id == source_level:
-            continue
-        for room_id, room_name in ecard.get_room_dict(level_id).items():
-            full_id = _full_room_id(level_id, room_id)
-            target_key = _room_key(room_name)
-            if target_key == source_key or target_key.endswith(source_key):
-                candidates.append((full_id, level_name, target_key))
-    exact = [item for item in candidates if item[2] == source_key]
-    candidates = exact or candidates
-    typed = [item for item in candidates if meter_type in item[1]]
-    candidates = typed or candidates
-    if len(candidates) != 1:
-        raise ValueError(f"无法唯一确定{meter_type}电表，匹配到 {len(candidates)} 项。")
-    meter_id = candidates[0][0]
-    return meter_id, _read_energy(ecard, meter_id, meter_type)
-
-
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -309,33 +227,6 @@ def session_status(request: Request) -> dict[str, Any]:
 def logout(response: Response) -> dict[str, bool]:
     response.delete_cookie(COOKIE_NAME, path="/")
     return {"ok": True}
-
-
-@app.get("/api/energy")
-def energy(request: Request) -> dict[str, Any]:
-    session = _session(request)
-    cas: CASClient | None = None
-    ecard: ECardClient | None = None
-    try:
-        cas = _cas_from_session(session)
-        ecard = ECardClient(cas)
-        ecard.login()
-        default_room = ecard.get_default_room()
-        meters: dict[str, Any] = {}
-        for meter_type in ("照明", "空调"):
-            try:
-                meter_id, quantity = _meter_energy(ecard, default_room, meter_type)
-                meters[meter_type] = {"meter_id": meter_id, "quantity": quantity}
-            except BaseException as exc:
-                meters[meter_type] = {"error": str(exc)}
-        return {"default_room": default_room, "meters": meters}
-    except BaseException as exc:
-        _raise_upstream(exc)
-    finally:
-        if ecard is not None:
-            ecard.close()
-        if cas is not None:
-            cas.close()
 
 
 @app.get("/api/grades")

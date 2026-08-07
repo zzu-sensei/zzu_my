@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  AirVent,
   ArrowRight,
   BookOpenCheck,
   CalendarDays,
@@ -11,22 +10,18 @@ import {
   CloudDownload,
   GraduationCap,
   Home,
-  LampDesk,
   LoaderCircle,
   LogOut,
   Menu,
   Network,
-  RefreshCw,
   ShieldCheck,
   Sparkles,
   X,
-  Zap,
 } from "lucide-react";
 import "./styles.css";
 
 const navItems = [
   ["overview", "首页", Home],
-  ["energy", "寝室电量", Zap],
   ["grades", "成绩", GraduationCap],
   ["schedule", "课表", CalendarDays],
   ["network", "网络设备", Network],
@@ -136,12 +131,12 @@ function LoginPage({ onLoggedIn }) {
           <p className="eyebrow">郑州大学 · 数字生活</p>
           <h1>校园信息，<br /><em>清晰一点。</em></h1>
           <p className="story-lead">
-            一处查看寝室电量、课程成绩与每周课表。少一点跳转，
+            一处查看课程成绩与每周课表。少一点跳转，
             多一点从容。
           </p>
         </div>
         <div className="story-metrics" aria-label="功能摘要">
-          <div><strong>2</strong><span>类寝室电表</span></div>
+          <div><strong>多学期</strong><span>课程成绩</span></div>
           <div><strong>7×10</strong><span>教学周课表</span></div>
           <div><strong>.ics</strong><span>日历导出</span></div>
         </div>
@@ -243,7 +238,6 @@ function Overview({ account, navigate }) {
     month: "long", day: "numeric", weekday: "long",
   }).format(new Date());
   const cards = [
-    ["energy", LampDesk, "寝室电量", "照明与空调分开查询", "#dfff78"],
     ["grades", BookOpenCheck, "课程成绩", "按学期整理全部成绩", "#9bd8ff"],
     ["schedule", CalendarDays, "本周课表", "查看课次并导出日历", "#ffc799"],
   ];
@@ -279,54 +273,6 @@ function Overview({ account, navigate }) {
         <ShieldCheck />
         <div><strong>会话由服务端加密保护</strong><span>页面不会把密码写入浏览器存储。</span></div>
       </div>
-    </div>
-  );
-}
-
-function EnergyView() {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  async function load() {
-    setLoading(true); setError("");
-    try { setData(await api("/api/energy")); }
-    catch (requestError) { setError(requestError.message); }
-    finally { setLoading(false); }
-  }
-  useEffect(() => { load(); }, []);
-  const meterCards = [
-    ["照明", LampDesk, "lighting"], ["空调", AirVent, "air"],
-  ];
-  return (
-    <div>
-      <PageHeader
-        eyebrow="DORM ENERGY"
-        title="寝室电量"
-        description={data ? `账号绑定寝室 · ${data.default_room}` : "分别查询照明与空调电表"}
-        action={<button className="outline-button" onClick={load} disabled={loading}><RefreshCw size={17} />刷新</button>}
-      />
-      <ErrorNotice error={error} onRetry={load} />
-      {loading ? <Spinner label="正在查询两类电表" /> : (
-        <div className="meter-grid">
-          {meterCards.map(([name, Icon, tone]) => {
-            const meter = data?.meters?.[name] || {};
-            return (
-              <article className={`meter-card ${tone}`} key={name}>
-                <div className="meter-top"><span><Icon /></span><em>{name}电表</em></div>
-                {meter.error ? (
-                  <div className="meter-error"><CircleAlert />查询失败<p>{meter.error}</p></div>
-                ) : (
-                  <>
-                    <div className="meter-value"><strong>{meter.quantity ?? "--"}</strong><span>度</span></div>
-                    <div className="meter-id">电表 ID · {meter.meter_id || "--"}</div>
-                  </>
-                )}
-              </article>
-            );
-          })}
-        </div>
-      )}
-      <p className="page-footnote">系统会依据绑定寝室自动匹配同楼栋的照明与空调电表，不会进行充值。</p>
     </div>
   );
 }
@@ -465,7 +411,7 @@ function AppShell({ account, onLogout }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const views = {
     overview: <Overview account={account} navigate={setPage} />,
-    energy: <EnergyView />, grades: <GradesView />, schedule: <ScheduleView />,
+    grades: <GradesView />, schedule: <ScheduleView />,
     network: <NetworkView />,
   };
   return (

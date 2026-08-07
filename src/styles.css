@@ -97,7 +97,7 @@ button { color: inherit; }
 .hero-orbit::after { content: ""; position: absolute; inset: 38px; border: 1px solid rgba(255,255,255,.15); border-radius: 50%; }
 .orbit-core { position: absolute; inset: 50%; width: 74px; height: 74px; margin: -37px; border-radius: 50%; display: grid; place-items: center; color: #153d35; background: var(--lime); z-index: 2; }
 .orbit-dot { position: absolute; width: 13px; height: 13px; background: #ffc799; border-radius: 50%; }.dot-one { left: 25px; top: 42px; }.dot-two { right: 8px; bottom: 72px; background: #9bd8ff; }
-.quick-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-top: 18px; }
+.quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; margin-top: 18px; }
 .quick-card { display: flex; align-items: center; gap: 13px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: var(--paper); cursor: pointer; text-align: left; transition: .2s; }
 .quick-card:hover { transform: translateY(-3px); box-shadow: 0 14px 32px rgba(28,61,53,.08); }
 .quick-icon { width: 43px; height: 43px; border-radius: 12px; display: grid; place-items: center; color: #16352e; flex: 0 0 auto; }
@@ -108,14 +108,6 @@ button { color: inherit; }
 .app-loading { height: 100vh; display: grid; place-content: center; justify-items: center; color: var(--green); }.app-loading > svg { width: 40px; height: 40px; }
 .fatal-error { min-height: 100vh; display: grid; place-content: center; justify-items: center; padding: 30px; text-align: center; color: var(--green); }.fatal-error h1 { margin: 18px 0 6px; }.fatal-error p { max-width: 560px; color: var(--muted); white-space: pre-wrap; }.fatal-error .primary-button { width: auto; }
 
-.meter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.meter-card { min-height: 315px; padding: 28px; border-radius: 22px; border: 1px solid rgba(20,56,48,.08); display: flex; flex-direction: column; overflow: hidden; position: relative; }
-.meter-card::after { content: ""; position: absolute; width: 210px; height: 210px; right: -92px; bottom: -98px; border: 36px solid rgba(255,255,255,.3); border-radius: 50%; }
-.meter-card.lighting { background: #e4ff93; }.meter-card.air { background: #ccecff; }
-.meter-top { display: flex; justify-content: space-between; align-items: center; }.meter-top > span { width: 46px; height: 46px; display: grid; place-items: center; border-radius: 13px; background: rgba(255,255,255,.62); }.meter-top em { font-style: normal; font-size: 12px; font-weight: 700; }
-.meter-value { margin: auto 0 4px; position: relative; z-index: 1; }.meter-value strong { font-size: clamp(64px, 8vw, 96px); letter-spacing: -.07em; line-height: 1; }.meter-value span { font-size: 18px; margin-left: 10px; }
-.meter-id { position: relative; z-index: 1; color: #536a64; font-size: 12px; }
-.meter-error { margin: auto 0; font-size: 26px; font-weight: 800; }.meter-error p { font-size: 12px; line-height: 1.6; font-weight: 400; }
 .page-footnote { margin-top: 20px; color: #7c8b87; font-size: 11px; }
 
 .semester-list { display: grid; gap: 14px; }.semester-card { border: 1px solid var(--line); border-radius: 16px; background: var(--paper); overflow: hidden; }.semester-card summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; align-items: center; padding: 18px 20px; }.semester-card summary::-webkit-details-marker { display: none; }.semester-card summary span { display: flex; align-items: center; gap: 9px; font-weight: 700; }.semester-card summary em { color: var(--muted); font-size: 11px; font-style: normal; }.grade-table-wrap { overflow-x: auto; border-top: 1px solid var(--line); }.data-table { width: 100%; border-collapse: collapse; min-width: 980px; }.data-table th, .data-table td { padding: 13px 16px; text-align: left; border-bottom: 1px solid #edf0eb; font-size: 12px; white-space: nowrap; }.data-table th { color: #82908c; background: #fafaf6; font-size: 10px; }.data-table td:first-child { white-space: normal; min-width: 170px; }.score-cell { font-weight: 800; font-size: 15px !important; }.component-cell { color: #385b52; font-variant-numeric: tabular-nums; }.status-pill { padding: 4px 8px; border-radius: 999px; font-size: 9px; background: #e8f5e7; color: #39733a; }.status-pill.fail { color: #a43e2a; background: #ffe8e1; }.status-pill.pending { color: #796523; background: #fff4c9; }
@@ -132,7 +124,7 @@ button { color: inherit; }
 }
 
 @media (max-width: 620px) {
-  .login-panel { padding: 18px; }.login-card { padding: 28px 22px; }.page-header { align-items: flex-start; flex-direction: column; }.page-header .outline-button { align-self: stretch; }.hero-card { min-height: 340px; padding: 32px 26px; }.hero-orbit { position: absolute; width: 155px; height: 155px; right: -45px; bottom: -35px; opacity: .75; }.hero-card p { max-width: 80%; }.meter-grid { grid-template-columns: 1fr; }.meter-card { min-height: 270px; }.schedule-toolbar { grid-template-columns: 1fr; }.lesson-card { grid-template-columns: 64px 1fr; }.lesson-units { grid-column: 2; justify-self: start; }.network-limit-card { grid-template-columns: 1fr; gap: 22px; }.network-graphic { width: 105px; height: 105px; }.network-graphic svg { width: 38px; }.content-inner { padding-inline: 15px; }
+  .login-panel { padding: 18px; }.login-card { padding: 28px 22px; }.page-header { align-items: flex-start; flex-direction: column; }.page-header .outline-button { align-self: stretch; }.hero-card { min-height: 340px; padding: 32px 26px; }.hero-orbit { position: absolute; width: 155px; height: 155px; right: -45px; bottom: -35px; opacity: .75; }.hero-card p { max-width: 80%; }.schedule-toolbar { grid-template-columns: 1fr; }.lesson-card { grid-template-columns: 64px 1fr; }.lesson-units { grid-column: 2; justify-self: start; }.network-limit-card { grid-template-columns: 1fr; gap: 22px; }.network-graphic { width: 105px; height: 105px; }.network-graphic svg { width: 38px; }.content-inner { padding-inline: 15px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
