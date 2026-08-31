@@ -73,6 +73,8 @@ for grade in grades:
 
 ## 课表查询
 
+课程的 `period_info.periods_per_week`（每周学时）支持小数，例如 `2.5`，不会取整；具体上课节次仍以课表安排为准。
+
 ### 获取单周课表
 
 ```python title="查询指定教学周"

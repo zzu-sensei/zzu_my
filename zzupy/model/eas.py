@@ -82,7 +82,8 @@ class PeriodInfo(BaseModel):
     design: int | None = None
     design_unit: str | None = None
     require_design: int | None = None
-    periods_per_week: int = 0
+    periods_per_week: float = 0
+    """每周学时可能为小数，保留服务器精度，不按课次取整。"""
     extra: int | None = None
     extra_unit: str | None = None
     require_extra: int | None = None
