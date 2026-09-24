@@ -2,20 +2,26 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   ArrowRight,
+  Award,
   BookOpenCheck,
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   CircleAlert,
   CloudDownload,
+  FileText,
   GraduationCap,
   Home,
   LoaderCircle,
   LogOut,
+  MapPin,
   Menu,
   Network,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
+  TrendingUp,
   X,
 } from "lucide-react";
 import "./styles.css";
@@ -27,7 +33,45 @@ const navItems = [
   ["network", "网络设备", Network],
 ];
 
+const demoMode = import.meta.env.DEV
+  && new URLSearchParams(window.location.search).get("demo") === "1";
+const demoData = {
+  "/api/session": { authenticated: true, account: "移动端预览" },
+  "/api/academic-summary": {
+    gpa: 3.86, credits: 72.5, course_count: 31,
+    best_attempt_course_count: 29, included_course_count: 26,
+    method: "每门课程保留最高绩点后，按学分加权；无绩点课程不计入",
+  },
+  "/api/grades": {
+    grades: [
+      { semester: "2025-2026-2", course: "电机学（Ⅰ）", course_code: "EE-301", score: "92", gp: 4, credits: 3, passed: true },
+      { semester: "2025-2026-2", course: "电磁场", course_code: "EE-302", score: "89", gp: 3.7, credits: 2, passed: true },
+      { semester: "2025-2026-1", course: "概率与数理统计", course_code: "MATH-203", score: "88", gp: 3.7, credits: 3, passed: true },
+    ],
+  },
+  "/api/semesters": {
+    semesters: [{ id: 1001, name: "第二学期", school_year: "2025-2026", start_date: "2026-02-23", end_date: "2026-07-05", weeks: 20 }],
+  },
+};
+
+function demoSchedule() {
+  return {
+    week: 3,
+    lessons: [
+      { weekday: 1, date: "2026-03-09", start_unit: 1, end_unit: 2, course: "电机学（Ⅰ）", teacher: "张老师", place: "主校区 电气工程学院 201" },
+      { weekday: 1, date: "2026-03-09", start_unit: 5, end_unit: 6, course: "电磁场", teacher: "李老师", place: "主校区 北核心教学区 305" },
+      { weekday: 2, date: "2026-03-10", start_unit: 3, end_unit: 4, course: "数据库原理", teacher: "王老师", place: "主校区 信息工程学院 402" },
+      { weekday: 4, date: "2026-03-12", start_unit: 7, end_unit: 8, course: "微机原理与单片机应用", teacher: "陈老师", place: "主校区 电气工程学院 315" },
+    ],
+  };
+}
+
 async function api(path, options = {}) {
+  if (demoMode) {
+    if (path.startsWith("/api/schedule")) return demoSchedule();
+    if (options.method === "POST") return { ok: true };
+    if (demoData[path]) return demoData[path];
+  }
   const response = await fetch(path, {
     credentials: "include",
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -46,6 +90,34 @@ async function api(path, options = {}) {
     throw new Error(detail || `请求失败（${response.status}）`);
   }
   return payload;
+}
+
+function numericScore(value) {
+  const match = String(value || "").match(/\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : Number.NEGATIVE_INFINITY;
+}
+
+function bestAttemptGrades(grades) {
+  const selected = new Map();
+  for (const grade of grades || []) {
+    const key = grade.course_code || grade.course;
+    const previous = selected.get(key);
+    const currentRank = [grade.gp ?? Number.NEGATIVE_INFINITY, numericScore(grade.score), grade.semester || ""];
+    const previousRank = previous
+      ? [previous.gp ?? Number.NEGATIVE_INFINITY, numericScore(previous.score), previous.semester || ""]
+      : null;
+    if (!previousRank || currentRank.some((value, index) => value > previousRank[index]
+      && currentRank.slice(0, index).every((item, before) => item === previousRank[before]))) {
+      selected.set(key, grade);
+    }
+  }
+  return [...selected.values()];
+}
+
+function courseAccent(course) {
+  let value = 0;
+  for (const character of course || "课程") value = (value * 31 + character.charCodeAt(0)) % 360;
+  return `hsl(${value} 55% 48%)`;
 }
 
 function Spinner({ label = "正在加载" }) {
@@ -279,19 +351,45 @@ function Overview({ account, navigate }) {
 
 function GradesView() {
   const [grades, setGrades] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [bestOnly, setBestOnly] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
     api("/api/grades").then((result) => setGrades(result.grades)).catch((e) => setError(e.message));
+    api("/api/academic-summary").then(setSummary).catch(() => setSummary(null));
   }, []);
+  const visibleGrades = useMemo(
+    () => bestOnly ? bestAttemptGrades(grades) : (grades || []),
+    [grades, bestOnly],
+  );
   const grouped = useMemo(() => {
     const result = {};
-    for (const grade of grades || []) (result[grade.semester || "未知学期"] ||= []).push(grade);
+    for (const grade of visibleGrades) (result[grade.semester || "未知学期"] ||= []).push(grade);
     return result;
-  }, [grades]);
+  }, [visibleGrades]);
   return (
     <div>
-      <PageHeader eyebrow="ACADEMIC RECORD" title="课程成绩" description="按学期查看已发布成绩与学分" />
+      <PageHeader eyebrow="ACADEMIC RECORD" title="学业成绩" description="累计绩点、最好成绩与官方成绩材料" />
       <ErrorNotice error={error} />
+      {summary && (
+        <section className="academic-dashboard" aria-label="累计绩点概览">
+          <article className="gpa-hero">
+            <span><TrendingUp size={18} /> 累计绩点</span>
+            <strong>{summary.gpa ?? "—"}</strong>
+            <small>{summary.method}</small>
+          </article>
+          <article><span>计入学分</span><strong>{summary.credits}</strong><small>{summary.included_course_count} 门有绩点课程</small></article>
+          <article><span>最好成绩</span><strong>{summary.best_attempt_course_count}</strong><small>原始记录 {summary.course_count} 门</small></article>
+        </section>
+      )}
+      <div className="academic-actions">
+        <a className="outline-button" href="/api/transcript"><FileText size={17} />打印个人成绩汇总</a>
+        <a className="outline-button rank-action" href="/api/grade-rank-report"><Award size={17} />下载官方排名报告</a>
+        <label className="best-toggle">
+          <input type="checkbox" checked={bestOnly} onChange={(event) => setBestOnly(event.target.checked)} />
+          <span>每门课程仅显示最高成绩</span>
+        </label>
+      </div>
       {!grades && !error ? <Spinner label="正在读取成绩" /> : (
         <div className="semester-list">
           {Object.entries(grouped).sort(([a], [b]) => b.localeCompare(a)).map(([semester, items], index) => (
@@ -317,7 +415,7 @@ function GradesView() {
           ))}
         </div>
       )}
-      <p className="page-footnote">当前接口没有班级或专业对比数据，因此不展示不可靠的排名。</p>
+      <p className="page-footnote">累计绩点为本应用按有绩点课程与学分计算的参考值；最终口径以教务系统导出的官方成绩单和排名报告为准。</p>
     </div>
   );
 }
@@ -327,6 +425,7 @@ function ScheduleView() {
   const [semesterId, setSemesterId] = useState("");
   const [week, setWeek] = useState(1);
   const [lessons, setLessons] = useState(null);
+  const [activeDay, setActiveDay] = useState(new Date().getDay() || 1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -336,15 +435,43 @@ function ScheduleView() {
     }).catch((e) => setError(e.message)).finally(() => setLoading(false));
   }, []);
   const selected = semesters.find((item) => String(item.id) === semesterId);
+  useEffect(() => {
+    if (semesterId) querySchedule();
+  }, [semesterId, week]);
   async function querySchedule() {
     if (!semesterId) return;
     setLoading(true); setError("");
     try {
       const result = await api(`/api/schedule?semester_id=${semesterId}&week=${week}`);
       setLessons(result.lessons);
+      const today = new Date().toISOString().slice(0, 10);
+      const todayLesson = result.lessons.find((item) => item.date === today);
+      const firstLesson = result.lessons[0];
+      setActiveDay(todayLesson?.weekday || firstLesson?.weekday || 1);
     } catch (requestError) { setError(requestError.message); }
     finally { setLoading(false); }
   }
+  const weekDays = useMemo(() => {
+    if (!lessons?.length) return [];
+    const anchor = lessons[0];
+    const monday = new Date(`${anchor.date}T12:00:00`);
+    monday.setDate(monday.getDate() - (anchor.weekday - 1));
+    return Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(monday);
+      date.setDate(monday.getDate() + index);
+      const iso = date.toISOString().slice(0, 10);
+      return {
+        weekday: index + 1,
+        date: iso,
+        day: date.getDate(),
+        count: lessons.filter((item) => item.weekday === index + 1).length,
+      };
+    });
+  }, [lessons]);
+  const activeLessons = useMemo(
+    () => (lessons || []).filter((item) => item.weekday === activeDay),
+    [lessons, activeDay],
+  );
   async function downloadCalendar() {
     setError("");
     try {
@@ -358,16 +485,20 @@ function ScheduleView() {
       link.click(); URL.revokeObjectURL(url);
     } catch (requestError) { setError(requestError.message); }
   }
-  const weekdays = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
+  const weekdays = ["", "一", "二", "三", "四", "五", "六", "日"];
   return (
     <div>
-      <PageHeader eyebrow="WEEKLY SCHEDULE" title="我的课表" description="选择学期与教学周，查看本周全部课次" />
+      <PageHeader eyebrow="WEEKLY SCHEDULE" title="我的课表" description="轻触日期查看当天课程，左右切换教学周" />
       <div className="schedule-toolbar">
         <label><span>学期</span><select value={semesterId} onChange={(e) => { setSemesterId(e.target.value); setWeek(1); }}>
           {semesters.map((item) => <option key={item.id} value={item.id}>{item.school_year} · {item.name}</option>)}
         </select></label>
-        <label><span>教学周</span><input type="number" min="1" max={selected?.weeks || 30} value={week} onChange={(e) => setWeek(Number(e.target.value))} /></label>
-        <button className="primary-button compact" onClick={querySchedule} disabled={loading || !semesterId}>查询课表</button>
+        <div className="week-stepper" aria-label="切换教学周">
+          <button onClick={() => setWeek((value) => Math.max(1, value - 1))} disabled={week <= 1}><ChevronLeft /></button>
+          <label><span>教学周</span><strong>第 {week} 周</strong></label>
+          <button onClick={() => setWeek((value) => Math.min(selected?.weeks || 30, value + 1))} disabled={week >= (selected?.weeks || 30)}><ChevronRight /></button>
+        </div>
+        <button className="primary-button compact refresh-schedule" onClick={querySchedule} disabled={loading || !semesterId}><RefreshCw size={17} />刷新</button>
         <button className="outline-button" onClick={downloadCalendar} disabled={!semesterId}><CloudDownload size={17} />下载 iCalendar</button>
       </div>
       <ErrorNotice error={error} />
@@ -376,15 +507,36 @@ function ScheduleView() {
       ) : lessons.length === 0 ? (
         <div className="empty-state"><CheckCircle2 /><h3>这一周没有课程</h3><p>可以切换其他教学周继续查看。</p></div>
       ) : (
-        <div className="lesson-list">
-          {lessons.map((lesson, index) => (
-            <article className="lesson-card" key={`${lesson.date}-${lesson.start_unit}-${index}`}>
-              <div className="lesson-date"><strong>{weekdays[lesson.weekday]}</strong><span>{lesson.date.slice(5)}</span></div>
-              <div className="lesson-main"><h3>{lesson.course}</h3><p>{lesson.teacher || "教师未定"} · {lesson.place || "地点未定"}</p></div>
-              <div className="lesson-units">第 {lesson.start_unit}–{lesson.end_unit} 节</div>
-            </article>
-          ))}
-        </div>
+        <section className="mobile-schedule">
+          <div className="schedule-week-head">
+            <div><span>{selected?.school_year}</span><strong>第 {week} 教学周</strong></div>
+            <em>{lessons.length} 个课次</em>
+          </div>
+          <div className="day-strip" role="tablist" aria-label="选择日期">
+            {weekDays.map((item) => (
+              <button key={item.date} role="tab" aria-selected={activeDay === item.weekday} className={activeDay === item.weekday ? "active" : ""} onClick={() => setActiveDay(item.weekday)}>
+                <span>周{weekdays[item.weekday]}</span><strong>{item.day}</strong><i className={item.count ? "has-course" : ""} />
+              </button>
+            ))}
+          </div>
+          {activeLessons.length === 0 ? (
+            <div className="day-empty"><CheckCircle2 /><span>今天没有课程，去做喜欢的事吧</span></div>
+          ) : (
+            <div className="lesson-timeline">
+              {activeLessons.map((lesson, index) => (
+                <article className="timeline-card" style={{ "--course-color": courseAccent(lesson.course) }} key={`${lesson.date}-${lesson.start_unit}-${index}`}>
+                  <div className="timeline-unit"><strong>{lesson.start_unit}</strong><span>至 {lesson.end_unit} 节</span></div>
+                  <div className="timeline-content">
+                    <span className="course-kicker">第 {lesson.start_unit}–{lesson.end_unit} 节</span>
+                    <h3>{lesson.course}</h3>
+                    <p><MapPin size={15} />{lesson.place || "地点未定"}</p>
+                    <p><GraduationCap size={15} />{lesson.teacher || "教师未定"}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       )}
     </div>
   );

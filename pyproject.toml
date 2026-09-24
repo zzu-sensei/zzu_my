@@ -42,8 +42,9 @@ docs = [
 
 
 [project.urls]
-Repository = "https://github.com/Illustar0/ZZU.Py"
+Repository = "https://github.com/zzu-sensei/zzu_my"
 Documentation = "https://illustar0.github.io/ZZU.Py"
+Upstream = "https://github.com/Illustar0/ZZU.Py"
 
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning"]
@@ -54,3 +55,4 @@ source = "uv-dynamic-versioning"
 
 [tool.uv-dynamic-versioning]
 vcs = "git"
+fallback-version = "0.0.0"

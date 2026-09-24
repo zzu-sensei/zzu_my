@@ -14,8 +14,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -165,3 +165,10 @@ node_modules/
 .vite/
 .vercel/
 npm-debug.log*
+.vercel
+.env*
+
+# Local delivery artifacts and superseded prototype
+release/
+android-app/
+*.apk

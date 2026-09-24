@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -24,6 +26,7 @@ from pydantic import BaseModel, Field
 
 from zzupy.app import CASClient, UndergradEASClient
 from zzupy.exception import ZZUError
+from zzupy.web import StudentWebEASClient
 
 app = FastAPI(title="郑大生活助手 API", docs_url=None, redoc_url=None)
 COOKIE_NAME = "zzu_web_session"
@@ -126,6 +129,68 @@ def _cas_from_session(session: dict[str, Any]) -> CASClient:
     cas.set_token(session["user_token"], session["refresh_token"])
     cas.login()
     return cas
+
+
+def _numeric_score(value: str | None) -> float:
+    if not value:
+        return float("-inf")
+    match = re.search(r"\d+(?:\.\d+)?", value)
+    return float(match.group()) if match else float("-inf")
+
+
+def _best_attempts(values: list[Any]) -> list[Any]:
+    """按课程代码保留最高绩点记录；缺少代码时退回课程名。"""
+    selected: dict[str, Any] = {}
+    for grade in values:
+        key = grade.lesson_code.strip() or grade.course_name_zh.strip()
+        current = selected.get(key)
+        grade_key = (
+            grade.gp if grade.gp is not None else float("-inf"),
+            _numeric_score(grade.final_grade),
+            grade.semester.name_zh,
+        )
+        if current is None:
+            selected[key] = grade
+            continue
+        current_key = (
+            current.gp if current.gp is not None else float("-inf"),
+            _numeric_score(current.final_grade),
+            current.semester.name_zh,
+        )
+        if grade_key > current_key:
+            selected[key] = grade
+    return list(selected.values())
+
+
+def _gpa_summary(values: list[Any]) -> dict[str, Any]:
+    best = _best_attempts(values)
+    included = [item for item in best if item.gp is not None and item.credits > 0]
+    credits = sum(item.credits for item in included)
+    weighted_points = sum(float(item.gp) * item.credits for item in included)
+    return {
+        "gpa": round(weighted_points / credits, 4) if credits else None,
+        "credits": round(credits, 2),
+        "weighted_points": round(weighted_points, 4),
+        "course_count": len(values),
+        "best_attempt_course_count": len(best),
+        "included_course_count": len(included),
+        "method": "每门课程保留最高绩点后，按学分加权；无绩点课程不计入",
+        "official": False,
+    }
+
+
+def _web_eas_from_session(session: dict[str, Any]) -> tuple[CASClient, StudentWebEASClient]:
+    cas = _cas_from_session(session)
+    web_eas: StudentWebEASClient | None = None
+    try:
+        web_eas = StudentWebEASClient(cas)
+        web_eas.login()
+        return cas, web_eas
+    except BaseException:
+        if web_eas is not None:
+            web_eas.close()
+        cas.close()
+        raise
 
 
 @app.middleware("http")
@@ -243,6 +308,7 @@ def grades(request: Request) -> dict[str, Any]:
                 {
                     "semester": grade.semester.name_zh,
                     "course": grade.course_name_zh,
+                    "course_code": grade.lesson_code,
                     "score": grade.final_grade,
                     "level": grade.grade_level,
                     "usual_score": grade.usual_grade,
@@ -259,6 +325,94 @@ def grades(request: Request) -> dict[str, Any]:
     except BaseException as exc:
         _raise_upstream(exc)
     finally:
+        if cas is not None:
+            cas.close()
+
+
+@app.get("/api/academic-summary")
+def academic_summary(request: Request) -> dict[str, Any]:
+    """计算当前学生的累计绩点，并使用最好成绩口径去除重复修读。"""
+    session = _session(request)
+    cas: CASClient | None = None
+    try:
+        cas = _cas_from_session(session)
+        with UndergradEASClient(cas) as eas:
+            eas.login()
+            values = eas.get_grades()
+        return _gpa_summary(values)
+    except BaseException as exc:
+        _raise_upstream(exc)
+    finally:
+        if cas is not None:
+            cas.close()
+
+
+@app.get("/api/transcript")
+def transcript(request: Request) -> Response:
+    """生成可打印的个人成绩汇总，避免旧教务网页登录跳转超时。"""
+    session = _session(request)
+    cas: CASClient | None = None
+    try:
+        cas = _cas_from_session(session)
+        with UndergradEASClient(cas) as eas:
+            eas.login()
+            values = eas.get_grades()
+        summary = _gpa_summary(values)
+        rows = "".join(
+            "<tr>"
+            f"<td>{html.escape(grade.semester.name_zh)}</td>"
+            f"<td>{html.escape(grade.course_name_zh)}</td>"
+            f"<td>{html.escape(grade.final_grade or '--')}</td>"
+            f"<td>{'--' if grade.gp is None else grade.gp:g}</td>"
+            f"<td>{grade.credits:g}</td>"
+            "</tr>"
+            for grade in values
+        )
+        content = f"""<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>个人成绩汇总</title><style>
+body{{font-family:system-ui,sans-serif;color:#172a25;max-width:1000px;margin:32px auto;padding:0 22px}}
+h1{{color:#08483c}} .note{{color:#65746f}} .summary{{display:flex;gap:28px;padding:16px;background:#edf6f1;border-radius:12px}}
+table{{border-collapse:collapse;width:100%;margin-top:22px}}th,td{{padding:9px;border-bottom:1px solid #d7e1dc;text-align:left}}
+@media print{{button{{display:none}}body{{margin:0;max-width:none}}}}
+</style></head><body><button onclick="window.print()">打印 / 保存 PDF</button>
+<h1>个人成绩汇总</h1><p class="note">由本科教务成绩接口实时生成，仅供个人核对，不等同于教务处盖章成绩单。</p>
+<div class="summary"><b>参考累计绩点：{summary['gpa'] if summary['gpa'] is not None else '--'}</b><b>计入学分：{summary['credits']:g}</b></div>
+<table><thead><tr><th>学期</th><th>课程</th><th>成绩</th><th>绩点</th><th>学分</th></tr></thead><tbody>{rows}</tbody></table>
+</body></html>""".encode()
+        return Response(
+            content=content,
+            media_type="text/html",
+            headers={"Content-Disposition": 'inline; filename="zzu-grade-summary.html"'},
+        )
+    except BaseException as exc:
+        _raise_upstream(exc)
+    finally:
+        if cas is not None:
+            cas.close()
+
+
+@app.get("/api/grade-rank-report")
+def grade_rank_report(request: Request) -> Response:
+    """代理当前学生的官方累计成绩排名 PDF。"""
+    session = _session(request)
+    cas: CASClient | None = None
+    web_eas: StudentWebEASClient | None = None
+    try:
+        cas, web_eas = _web_eas_from_session(session)
+        content = web_eas.get_grade_rank_report()
+        return Response(
+            content=content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'attachment; filename="zzu-grade-rank.pdf"'
+            },
+        )
+    except BaseException as exc:
+        _raise_upstream(exc)
+    finally:
+        if web_eas is not None:
+            web_eas.close()
         if cas is not None:
             cas.close()
 

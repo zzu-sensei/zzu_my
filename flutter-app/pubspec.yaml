@@ -1,0 +1,14 @@
+name: zzu_life
+description: "郑大生活助手 Flutter 原生客户端"
+publish_to: 'none'
+version: 3.5.2+15
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

@@ -18,6 +18,9 @@ assignees: ''
 
 **日志**
 如果适用，请附上日志以帮助解释您的问题。
+
+> 请先删除学号、姓名、手机号、宿舍号、密码、Token、Cookie、设备标识和完整接口响应。不要上传仍可使用的账号凭据。
+
 ```python
 # 启用 TRACE 日志
 from loguru import logger
