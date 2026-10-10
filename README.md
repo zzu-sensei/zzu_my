@@ -100,10 +100,53 @@ GUI 支持账号密码、可选 `deviceId`、已有 `userToken` / `refreshToken`
 # 查询默认寝室剩余电量
 zzu --account 你的学号 energy
 
+# 查一次电量，低于阈值（默认 2 度）时发送提醒邮件；适合交给 cron 定时调用
+zzu --account 你的学号 energy-check --threshold 2
+
+# 常驻巡检，每 30 分钟一次
+zzu --account 你的学号 energy-watch --interval 30
+
+# 查询电量并显示估算的耗电速度
+zzu --account 你的学号 energy --rate
+
 
 # 查询成绩，也可加 --semester 2025 或 --json
 zzu --account 你的学号 grades
+
+# 查看培养计划完成情况（从教务读取官方学分要求与计划课程）
+zzu --account 你的学号 plan
 ```
+
+### 耗电速度
+
+每次查到电量都会记一次采样，之后用最小二乘拟合出日均耗电量，估算「还能用几天」。比只看两次读数的差值稳，抄表噪声会被摊平。至少需要 2 个采样点且跨度不少于 6 小时；中途充过值时会提示「期间电量没有下降」而不是给出负速度。
+
+```
+照明：12.5 度，日均 0.42 度，约还能用 29 天
+空调：8.75 度，日均 2.10 度，约还能用 4.2 天
+```
+
+### 培养计划完成情况
+
+学分要求与计划课程直接从本科教务的「培养计划完成情况预览」读取，不需要自己维护配置文件。完成度按计划里的**学分模块**统计（必修课、校/院任选课、限选课等），模块的要求学分与计划课程都来自教务官方数据。
+
+两个实际数据里踩出来的要点：页面把数据以 **JavaScript 对象字面量**内联在 `var model = {...}` 里（单引号、裸键、`$` 开头的键），所以 `json.loads` 解析不了，需要用 `zzupy.web.jsdata` 里只解析数据字面量的解析器；未通过的取值是 `UNREPAIRED`（挂科未重修）而不是 `FAILED`，只匹配 `FAILED` 会一门课都列不出来。完成度**优先采用页面给出的模块汇总**（教务官方口径）。未通过/在修课程会单独列出。详见[培养计划完成情况](https://illustar0.github.io/ZZU.Py/usage/app/plan/)。
+
+### 电量预警与邮件提醒
+
+寝室电量低于阈值（默认 2 度）时，可以同时收到系统通知和提醒邮件。同一个低电量状态只提醒一次，电量回升后自动重新武装；持续低电量超过冷却时间会补发一次，避免长期断电却彻底静默。
+
+发信基于 HTTP 发信 API（[Resend](https://resend.com) 或 [Brevo](https://brevo.com)），只需在你的域名上配置 SPF / DKIM 的 DNS 记录，不需要真实域名邮箱，也不用改 MX 记录。凭据全部通过环境变量提供：
+
+```bash
+export ZZU_MAIL_PROVIDER=resend
+export ZZU_MAIL_API_KEY=re_xxxxxxxx
+export ZZU_MAIL_FROM=alert@example.com
+export ZZU_MAIL_TO=me@example.com
+export ZZU_ENERGY_THRESHOLD=2
+```
+
+安卓端不保存发信密钥：它在本地判断电量后把读数上报给服务端的 `POST /api/energy-alert`，由服务端发信，因此服务端不需要保存任何统一认证凭据。完整说明、接口示例与域名邮箱 DNS 记录见[电量预警与邮件提醒](https://illustar0.github.io/ZZU.Py/usage/app/energy-alert/)。
 
 ## 模块概览
 
@@ -120,6 +163,18 @@ zzu --account 你的学号 grades
 - `SelfServiceSystem`: 自助服务系统设备管理
 - `StudentWebEASClient`: 复用统一认证会话读取最高成绩记录、官方成绩总表与成绩排名证明
 
+### 电量预警
+
+- `zzupy.energy`: 阈值判断、提醒去重状态与提醒邮件文案
+- `zzupy.energy_history`: 电量采样历史与耗电速度估算
+- `zzupy.mail`: 基于 Resend / Brevo HTTP 发信 API 的邮件发送
+- `zzupy.alerting`: 读配置、查电量、判断阈值、发信的编排逻辑
+
+### 学业统计
+
+- `zzupy.plan`: 解析教务培养计划页面（JS 字面量）并统计各学分模块完成度
+- `zzupy.web.jsdata`: 只解析数据字面量的 JS 对象解析器（内联数据用）
+
 ### `zzupy.aio`
 
 - 提供 `app` 与 `web` 下主要客户端的异步版本
@@ -129,7 +184,8 @@ zzu --account 你的学号 grades
 - 生产网站：<https://zzu.ylyg.eu.org>
 - `flutter-app/` 是当前 Android 客户端，不加载或依赖生产网站；登录、成绩、课表和寝室电量请求均从手机本地发往学校接口。
 - 客户端采用 Flutter 液态玻璃界面；Android 平台通道复用本地 Chaquopy/ZZU.Py、加密会话和桌面小组件。
-- 安卓端内置针对移动环境精简的 ZZU.Py 协议桥接与 Python 3.12 运行时，提供本地加密会话、按学期分组的成绩与打印、自动定位当前教学周的周课表、照明/空调双电表识别、电费充值双重确认，以及“今日课表”和“寝室电量”桌面小组件。支付密码仅参与当次本地加密请求，不会保存。
+- 安卓端内置针对移动环境精简的 ZZU.Py 协议桥接与 Python 3.12 运行时，提供本地加密会话、按学期分组的成绩与打印、自动定位当前教学周的周课表、照明/空调双电表识别、电费充值双重确认、低电量邮件提醒，以及“今日课表”和“寝室电量”桌面小组件。支付密码仅参与当次本地加密请求，不会保存。
+- 电量预警使用精确闹钟并在每次巡检后重排下一次，应用启动时也会重排，避免更新后闹钟链断掉。邮件由服务端发送，手机只上报读数。
 - 当前直装包仅包含主流 `arm64-v8a` 架构，并使用 Android 调试证书签署，仅供侧载测试，不适用于应用商店发布。源码构建说明见 [`flutter-app/README.md`](flutter-app/README.md)。
 
 ## 隐私与安全
@@ -151,6 +207,7 @@ zzu --account 你的学号 grades
 
 ```bash
 uv sync --extra develop,docs
+uv run python scripts/run_tests.py     # 全部离线自检
 uv run python scripts/generate_api_reference.py
 uv run zensical serve
 uv run zensical build
@@ -159,6 +216,11 @@ ruff check zzupy
 ty check zzupy
 uv build
 ```
+
+自检是 `scripts/test_*.py` 下的独立脚本（不用 pytest），`run_tests.py` 自动发现并运行，
+**不联网、不需要账号**。改动后请确保全绿。需要真实登录的排查脚本放在 `scripts/dev/`。
+
+安卓端与仓库指南见 [`AGENTS.md`](AGENTS.md) 和 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
 
 异常处理建议优先捕获 `zzupy.exception.ZZUError`，再按需细分到 `NetworkError`、`ParsingError`、`OperationError`、`InvalidArgumentError` 等具体异常。
 
