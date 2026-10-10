@@ -8,6 +8,7 @@ import html
 import json
 import os
 import re
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -24,9 +25,19 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from zzupy.app import CASClient, UndergradEASClient
-from zzupy.exception import ZZUError
-from zzupy.web import StudentWebEASClient
+from zzupy.alerting import (  # noqa: E402
+    ACCOUNT_ENV,
+    PASSWORD_ENV,
+    SECRET_ENV,
+    read_room_readings,
+    readings_from_payload,
+    run_energy_alert,
+)
+from zzupy.app import CASClient, ECardClient, UndergradEASClient  # noqa: E402
+from zzupy.energy import AlertState, EnergyAlertError  # noqa: E402
+from zzupy.exception import ZZUError  # noqa: E402
+from zzupy.mail import MailConfigError, MailSendError  # noqa: E402
+from zzupy.web import StudentWebEASClient  # noqa: E402
 
 app = FastAPI(title="郑大生活助手 API", docs_url=None, redoc_url=None)
 COOKIE_NAME = "zzu_web_session"
@@ -43,6 +54,27 @@ class LoginBody(BaseModel):
 class MfaBody(BaseModel):
     ticket: str
     code: str = Field(min_length=4, max_length=12)
+
+
+class EnergyMeterBody(BaseModel):
+    """设备上报的单个电表读数。"""
+
+    label: str = Field(max_length=64)
+    meter_id: str = Field(default="", max_length=256)
+    remaining: float | None = None
+    error: str | None = Field(default=None, max_length=512)
+
+
+class EnergyAlertBody(BaseModel):
+    """设备触发邮件提醒的请求体。
+
+    手机端本来就在本地查电量，因此把读数直接上报；服务端不需要保存任何
+    一卡通凭据即可发信。
+    """
+
+    meters: list[EnergyMeterBody] = Field(min_length=1, max_length=16)
+    room: str = Field(default="", max_length=256)
+    threshold: float | None = Field(default=None, ge=0, le=10000)
 
 
 def _secret() -> bytes:
@@ -292,6 +324,101 @@ def session_status(request: Request) -> dict[str, Any]:
 def logout(response: Response) -> dict[str, bool]:
     response.delete_cookie(COOKIE_NAME, path="/")
     return {"ok": True}
+
+
+def _require_alert_secret(request: Request) -> None:
+    """校验巡检/发信接口的共享密钥。
+
+    未配置 ``ZZU_ALERT_SECRET`` 时一律拒绝，避免接口被匿名调用刷爆发信额度。
+    密钥同时接受请求头与查询参数，前者更安全，后者方便外部定时器直接配置。
+    """
+    configured = os.environ.get(SECRET_ENV, "").strip()
+    if not configured:
+        raise HTTPException(
+            status_code=503,
+            detail=f"服务端未配置 {SECRET_ENV}，电量提醒接口已关闭。",
+        )
+    provided = (
+        request.headers.get("x-zzu-alert-secret")
+        or request.query_params.get("secret")
+        or ""
+    ).strip()
+    if not secrets.compare_digest(provided, configured):
+        raise HTTPException(status_code=401, detail="提醒密钥不正确。")
+
+
+def _alert_failure(exc: BaseException) -> None:
+    """把电量提醒相关的异常转成合适的 HTTP 状态码。"""
+    if isinstance(exc, (MailConfigError, EnergyAlertError)):
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if isinstance(exc, MailSendError):
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    _raise_upstream(exc)
+
+
+@app.post("/api/energy-alert")
+def energy_alert(body: EnergyAlertBody, request: Request) -> dict[str, Any]:
+    """按设备上报的电表读数判断是否需要发提醒邮件。
+
+    由手机端或本地巡检脚本调用，因此不需要在服务端保存任何一卡通凭据。
+    """
+    _require_alert_secret(request)
+    try:
+        readings = readings_from_payload(
+            [meter.model_dump() for meter in body.meters]
+        )
+        result = run_energy_alert(
+            readings,
+            room=body.room,
+            threshold=body.threshold,
+            state=AlertState(),
+        )
+        return {"ok": True, **result.to_dict()}
+    except BaseException as exc:
+        _alert_failure(exc)
+
+
+@app.get("/api/energy-alert/cron")
+def energy_alert_cron(request: Request) -> dict[str, Any]:
+    """由 Vercel Cron 或外部定时器触发的服务端巡检。
+
+    需要配置 ``ZZU_ACCOUNT`` 与 ``ZZU_PASSWORD``，服务端会自行登录并查询电量。
+    未配置时会明确报错，而不会静默什么都不做。
+    """
+    _require_alert_secret(request)
+    account = os.environ.get(ACCOUNT_ENV, "").strip()
+    password = os.environ.get(PASSWORD_ENV, "")
+    if not account or not password:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"服务端巡检需要配置 {ACCOUNT_ENV} 与 {PASSWORD_ENV}；"
+                "若不想把统一认证密码交给服务端，请改用 POST /api/energy-alert "
+                "由设备上报读数。"
+            ),
+        )
+
+    cas: CASClient | None = None
+    ecard: ECardClient | None = None
+    try:
+        cas = CASClient(account, password)
+        cas.login()
+        ecard = ECardClient(cas)
+        ecard.login()
+        room, readings = read_room_readings(ecard)
+        result = run_energy_alert(
+            readings,
+            room=room,
+            state=AlertState(),
+        )
+        return {"ok": True, **result.to_dict()}
+    except BaseException as exc:
+        _alert_failure(exc)
+    finally:
+        if ecard is not None:
+            ecard.close()
+        if cas is not None:
+            cas.close()
 
 
 @app.get("/api/grades")

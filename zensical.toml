@@ -18,6 +18,8 @@ nav = [
                 { "迁移指南" = "usage/app/eas/migration.md" },
             ] },
             { "一卡通" = "usage/app/ecard.md" },
+            { "培养方案完成情况" = "usage/app/plan.md" },
+            { "电量预警与邮件提醒" = "usage/app/energy-alert.md" },
         ] },
         { "Web 端" = [
             { "校园网" = "usage/web/network.md" },
