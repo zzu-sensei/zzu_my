@@ -19,9 +19,20 @@ from typing import Any, Callable
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from zzupy.alerting import (  # noqa: E402
+    read_room_readings,
+    run_energy_alert,
+    threshold_from_env,
+)
 from zzupy.app import CASClient, ECardClient, UndergradEASClient  # noqa: E402
+from zzupy.energy_history import EnergyHistory, format_drain_line  # noqa: E402
 from zzupy.exception import ParsingError, ZZUError  # noqa: E402
-from zzupy.web import SelfServiceSystem  # noqa: E402
+from zzupy.plan import (  # noqa: E402
+    course_passed,
+    format_completion,
+    match_completion,
+)
+from zzupy.web import SelfServiceSystem, StudentWebEASClient  # noqa: E402
 
 
 
@@ -194,6 +205,14 @@ class ZzuGui:
         self.air_conditioning_room_var = tk.StringVar(value="电表 ID：--")
         self.lighting_energy_var = tk.StringVar(value="--")
         self.air_conditioning_energy_var = tk.StringVar(value="--")
+        self.alert_threshold_var = tk.StringVar(
+            value=str(threshold_from_env())
+        )
+        self.alert_state_var = tk.StringVar(
+            value="发信未配置：请设置 ZZU_MAIL_* 环境变量"
+        )
+        self.drain_var = tk.StringVar(value="多查几次电量即可估算耗电速度")
+        self.plan_summary_var = tk.StringVar(value="尚未统计培养方案完成度")
         self.grade_detail_var = tk.StringVar(value="选择一条成绩可查看分项信息")
         self.grade_rank_var = tk.StringVar(
             value="总排名、各学期排名：当前接口未提供班级或专业对比数据"
@@ -482,6 +501,87 @@ class ZzuGui:
             wraplength=850,
         ).pack(anchor="w", pady=(14, 0))
 
+        self._build_energy_alert_panel()
+
+    def _build_energy_alert_panel(self) -> None:
+        """电量预警与邮件提醒面板。
+
+        发信凭据只从环境变量读取，不写进配置文件，避免明文落盘。
+        """
+        panel = ttk.LabelFrame(self.energy_tab, text="电量预警与邮件提醒", padding=14)
+        panel.pack(fill="x", pady=(14, 0))
+
+        row = ttk.Frame(panel)
+        row.pack(fill="x")
+        ttk.Label(row, text="预警阈值（度）：").pack(side="left")
+        ttk.Entry(row, textvariable=self.alert_threshold_var, width=8).pack(
+            side="left"
+        )
+        ttk.Button(
+            row, text="立即检查并提醒", command=self.check_energy_alert
+        ).pack(side="left", padx=(12, 0))
+
+        ttk.Label(panel, textvariable=self.alert_state_var, wraplength=850).pack(
+            anchor="w", pady=(10, 0)
+        )
+        ttk.Label(
+            panel, textvariable=self.drain_var, wraplength=850
+        ).pack(anchor="w", pady=(6, 0))
+        ttk.Label(
+            panel,
+            text=(
+                "发信配置读取环境变量：ZZU_MAIL_PROVIDER、ZZU_MAIL_API_KEY、"
+                "ZZU_MAIL_FROM、ZZU_MAIL_TO。低于阈值时只提醒一次，电量回升后"
+                "会自动重新武装。每次检查都会记一次采样，攒够约 6 小时的数据"
+                "后即可估算耗电速度。"
+            ),
+            foreground="#555555",
+            wraplength=850,
+        ).pack(anchor="w", pady=(6, 0))
+
+    def check_energy_alert(self) -> None:
+        try:
+            threshold = float(self.alert_threshold_var.get().strip())
+        except ValueError:
+            messagebox.showwarning("阈值不正确", "预警阈值必须是数字。", parent=self.root)
+            return
+
+        def action() -> str:
+            ecard = self._require_ecard()
+            history = EnergyHistory()
+            default_room_id, readings = read_room_readings(ecard, history=history)
+            result = run_energy_alert(
+                readings, room=default_room_id, threshold=threshold
+            )
+            lines = []
+            for item in result.readings:
+                if item.ok:
+                    lines.append(f"{item.label}：{item.remaining:g} 度")
+                else:
+                    lines.append(f"{item.label}：读取失败（{item.error}）")
+            if result.mail is not None:
+                lines.append(f"已发送提醒邮件（{result.mail.provider}）")
+            elif result.decision.low:
+                lines.append(f"电量偏低，但{result.decision.reason or '已提醒过'}")
+            else:
+                lines.append(f"电量正常（阈值 {result.decision.threshold:g} 度）")
+
+            estimates = history.estimate()
+            if estimates:
+                lines.append("")
+                lines.append("耗电速度估算：")
+                lines.extend(f"  {format_drain_line(item)}" for item in estimates)
+            self.drain_var.set(
+                "\n".join(
+                    format_drain_line(item) for item in estimates
+                )
+                if estimates
+                else "还没有足够的历史采样，多查几次即可估算耗电速度。"
+            )
+            return "\n".join(lines)
+
+        self._run("正在检查电量并判断是否提醒...", action, self.alert_state_var.set)
+
     def _build_schedule_tab(self) -> None:
         self.schedule_tab.columnconfigure(0, weight=1)
         self.schedule_tab.rowconfigure(1, weight=1)
@@ -653,19 +753,47 @@ class ZzuGui:
         ).grid(row=3, column=0, sticky="w", pady=(10, 0))
     def _build_grades_tab(self) -> None:
         self.grades_tab.columnconfigure(0, weight=1)
-        self.grades_tab.rowconfigure(1, weight=1)
+        self.grades_tab.rowconfigure(2, weight=1)
 
         actions = ttk.Frame(self.grades_tab)
         actions.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         ttk.Button(actions, text="刷新成绩", command=self.query_grades).pack(
             side="left"
         )
+        ttk.Button(
+            actions, text="统计培养方案完成度", command=self.query_plan_progress
+        ).pack(side="left", padx=(8, 0))
         ttk.Label(actions, textvariable=self.grade_rank_var).pack(
             side="left", padx=16
         )
 
+        plan_panel = ttk.LabelFrame(
+            self.grades_tab, text="培养方案完成情况", padding=10
+        )
+        plan_panel.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        plan_panel.columnconfigure(0, weight=1)
+        self.plan_text = tk.Text(
+            plan_panel, height=9, wrap="word", relief="flat", state="disabled"
+        )
+        self.plan_text.grid(row=0, column=0, sticky="ew")
+        plan_scroll = ttk.Scrollbar(
+            plan_panel, orient="vertical", command=self.plan_text.yview
+        )
+        plan_scroll.grid(row=0, column=1, sticky="ns")
+        self.plan_text.configure(yscrollcommand=plan_scroll.set)
+        ttk.Label(
+            plan_panel,
+            text=(
+                "学分要求与计划课程从本科教务的「培养计划完成情况预览」读取，"
+                "无需自己填写。完成度按计划里的学分模块统计；不在计划里的课程"
+                "会单独列出且不计入模块学分。"
+            ),
+            foreground="#555555",
+            wraplength=850,
+        ).grid(row=1, column=0, sticky="w", pady=(6, 0))
+
         table = ttk.Frame(self.grades_tab)
-        table.grid(row=1, column=0, sticky="nsew")
+        table.grid(row=2, column=0, sticky="nsew")
         columns = ("course", "score", "gp", "credits", "status")
         self.grade_tree = ttk.Treeview(
             table,
@@ -1375,6 +1503,50 @@ class ZzuGui:
                 return eas.get_grades()
 
         self._run("正在查询成绩...", action, self._show_grades)
+
+    def query_plan_progress(self) -> None:
+        """统计培养计划完成度。
+
+        学分要求与计划课程来自教务网页端的「培养计划完成情况预览」页面，
+        因此需要先建立网页会话（用 App 的 userToken 换取）。
+        """
+        if self.cas is None:
+            messagebox.showwarning("尚未登录", "请先登录。")
+            return
+        cas = self.cas
+
+        def action() -> str:
+            with StudentWebEASClient(cas) as web:
+                web.login()
+                plan = web.get_program_plan()
+            with UndergradEASClient(cas) as eas:
+                eas.login()
+                grades = eas.get_grades()
+            records = [
+                {
+                    "course": grade.course_name_zh,
+                    "credits": grade.credits,
+                    "code": grade.lesson_code,
+                    "passed": grade.passed,
+                    "score": grade.final_grade,
+                    "gp": grade.gp,
+                }
+                for grade in grades
+            ]
+            completion = match_completion(plan, records, passed_of=course_passed)
+            report = format_completion(completion)
+            if plan.name:
+                report += f"\n\n计划：{plan.name}（ID {plan.id}）"
+            return report
+
+        def success(report: str) -> None:
+            self.plan_text.configure(state="normal")
+            self.plan_text.delete("1.0", "end")
+            self.plan_text.insert("1.0", report)
+            self.plan_text.configure(state="disabled")
+            self.plan_summary_var.set(report.splitlines()[0] if report else "")
+
+        self._run("正在读取培养计划并统计完成度...", action, success)
 
     def _show_grades(self, grades: list[Any]) -> None:
         for item in self.grade_tree.get_children():

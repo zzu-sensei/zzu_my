@@ -172,13 +172,25 @@ def log_http_response_body(
 def build_http_event_hooks(*, async_client: bool = False) -> dict[str, list[Any]]:
     """创建带脱敏能力的 HTTP 请求/响应日志钩子。"""
 
+    def _request_body(request: httpx2.Request) -> bytes | str | None:
+        """安全读取请求体。
+
+        重定向链里传给 ``response.request`` 的可能是尚未 read() 的流式请求，
+        此时访问 ``request.content`` 会抛 ``RequestNotRead``。日志只是辅助信息，
+        不能因为它让业务请求失败，所以这里退回不打印请求体。
+        """
+        try:
+            return request.content
+        except httpx2.RequestNotRead:
+            return None
+
     def log_request(request: httpx2.Request) -> None:
         sanitized_url = sanitize_http_url(request.url)
         logger.trace(">>> {} {}", request.method, sanitized_url)
         log_http_headers(">>> Headers", request.headers)
 
         body = sanitize_http_body(
-            request.content,
+            _request_body(request),
             content_type=request.headers.get("content-type"),
         )
         if body:

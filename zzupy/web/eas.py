@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from pathlib import Path
 from typing import Final
 
 import httpx2
@@ -17,6 +19,7 @@ from zzupy.exception import (
     ParsingError,
 )
 from zzupy.logging import build_http_event_hooks, logger
+from zzupy.plan import PlanParseError, TrainingPlan, parse_plan_page
 from zzupy.utils import require_auth
 
 
@@ -29,8 +32,13 @@ class StudentWebEASClient:
 
     TOKEN_LOGIN_URL: Final = "https://cas.s.zzu.edu.cn/cas/t/login"
     STUDENT_SSO_URL: Final = "https://jwxt.zzu.edu.cn/student/sso/login"
-    SHEET_BASE_URL: Final = (
-        "https://jwxt.zzu.edu.cn/student/for-std/grade/sheet"
+    #: 登录态所在的路径前缀。成绩单、排名证明和培养计划都挂在 ``for-std`` 下，
+    #: 因此按前缀拼接而不是把成绩单路径写死，便于接入同一系统的其它页面。
+    STUDENT_BASE_URL: Final = "https://jwxt.zzu.edu.cn/student/for-std"
+    SHEET_BASE_URL: Final = f"{STUDENT_BASE_URL}/grade/sheet"
+    #: 培养计划完成情况预览。学生端入口。
+    PROGRAM_PREVIEW_URL: Final = (
+        f"{STUDENT_BASE_URL}/program-completion-preview"
     )
     _STUDENT_ID_PATTERNS: Final = (
         re.compile(r"/semester-index/(\d+)"),
@@ -135,7 +143,11 @@ class StudentWebEASClient:
         logger.info("教务网页端登录成功")
 
     def _get(self, path: str, **kwargs) -> httpx2.Response:
-        url = f"{self.SHEET_BASE_URL}/{path.lstrip('/')}"
+        """按成绩单基址请求；``path`` 也可以是 ``for-std`` 下的完整相对路径。"""
+        return self._get_url(f"{self.SHEET_BASE_URL}/{path.lstrip('/')}", **kwargs)
+
+    def _get_url(self, url: str, **kwargs) -> httpx2.Response:
+        """请求 ``for-std`` 下的任意地址，并统一处理登录失效与网络异常。"""
         try:
             response = self._client.get(url, **kwargs)
             response.raise_for_status()
@@ -201,6 +213,47 @@ class StudentWebEASClient:
             )
         return response.content
 
+    @require_auth
+    def get_program_plan(self, program_id: int | str | None = None) -> TrainingPlan:
+        """获取培养计划（学分要求、计划课程与完成度）。
+
+        计划数据是**服务端渲染**在该页面里的：整个模型以 JavaScript 对象字面量
+        内联在 ``<script>var model = {...}</script>`` 中，不是单独的 XHR 接口，
+        也不是标准 JSON（键不加引号、字符串用单引号）。因此这里抓页面后交给
+        [`parse_plan_page`][zzupy.plan.parse_plan_page] 解析。
+
+        Args:
+            program_id: 学生内部 ID（页面 URL 里的 ``.../info/<id>``）。
+                不传时由教务跳转到当前学生。
+
+        Returns:
+            解析好的培养计划。
+
+        Raises:
+            ParsingError: 页面里没有可识别的计划模型。
+            OperationError: 教务返回错误状态。
+        """
+        path = self.PROGRAM_PREVIEW_URL
+        if program_id is not None:
+            path = f"{path}/info/{program_id}"
+
+        response = self._get_url(path)
+        _maybe_dump_debug(response, "program-completion-preview")
+        try:
+            return parse_plan_page(response.text)
+        except PlanParseError as exc:
+            content_type = response.headers.get("content-type", "")
+            raise ParsingError(
+                f"{exc.message}。教务页面结构可能已更新。",
+                context={
+                    "url": str(response.url),
+                    "status": response.status_code,
+                    "content_type": content_type,
+                    "length": len(response.text),
+                    **exc.context,
+                },
+            ) from exc
+
     def logout(self) -> None:
         """清除网页会话。"""
         self._client.cookies.clear()
@@ -212,6 +265,31 @@ class StudentWebEASClient:
         if self._logged_in:
             self.logout()
         self._client.close()
+
+
+
+
+def _maybe_dump_debug(response: httpx2.Response, tag: str) -> None:
+    """把响应落盘，便于离线分析页面结构。
+
+    仅当设置了 ``ZZU_DEBUG_DUMP_DIR`` 时才写文件。教务页面结构一变就得靠真实
+    页面排查，但落盘内容含姓名、学号、成绩等个人信息，所以默认关闭，用完请删除。
+
+    Args:
+        response: 要落盘的响应。
+        tag: 文件名前缀，用于区分不同页面。
+    """
+    dump_dir = os.environ.get("ZZU_DEBUG_DUMP_DIR")
+    if not dump_dir:
+        return
+    try:
+        target_dir = Path(dump_dir)
+        target_dir.mkdir(parents=True, exist_ok=True)
+        suffix = "json" if "json" in response.headers.get("content-type", "") else "html"
+        (target_dir / f"{tag}.{suffix}").write_text(response.text, encoding="utf-8")
+        logger.debug("已把 {} 响应写入 {}", tag, target_dir)
+    except OSError as exc:  # 调试功能失败不应影响主流程
+        logger.warning("写入调试转储失败：{}", exc)
 
 
 __all__ = ["StudentWebEASClient"]
