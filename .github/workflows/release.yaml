@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    concurrency: release
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Force correct release branch on workflow sha
+        run: |
+          git checkout -B ${{ github.ref_name }} ${{ github.sha }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Calculate next version
+        id: version
+        run: |
+          tag="$(npx --yes git-cliff --config cliff.toml --bumped-version)"
+          version="${tag#v}"
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        run: |
+          npx --yes git-cliff --config cliff.toml --unreleased --tag ${{ steps.version.outputs.tag }} --output "${{ runner.temp }}\release-notes.md"
+
+      - name: Build distribution
+        run: |
+          git tag "${{ steps.version.outputs.tag }}"
+          uv build
+
+      - name: Publish | Upload package to PyPI
+        run: |
+          uv publish --token ${{ secrets.PYPI_TOKEN }}
+
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.version.outputs.tag }}
+          body_path: ${{ runner.temp }}\release-notes.md
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+          fail_on_unmatched_files: true
