@@ -87,7 +87,7 @@ class _WebClient:
         if len(self.calls) == 1:
             return _WebResponse("https://jwxt.zzu.edu.cn/student/home")
         return _WebResponse(
-            "https://jwxt.zzu.edu.cn/student/for-std/grade/sheet/semester-index/453672"
+            "https://jwxt.zzu.edu.cn/student/for-std/grade/sheet/semester-index/123456"
         )
 
     def close(self) -> None:
@@ -98,7 +98,7 @@ def main() -> None:
     web = MobileWebEASClient(SimpleNamespace(user_token="test-token"))
     web.client = _WebClient()
     web.login()
-    assert web.student_id == 453672
+    assert web.student_id == 123456
     assert web.client.calls[0] == (
         "https://cas.s.zzu.edu.cn/cas/t/login",
         {"service": "https://jwxt.zzu.edu.cn/student/sso/login"},

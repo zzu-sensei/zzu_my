@@ -172,3 +172,8 @@ npm-debug.log*
 release/
 android-app/
 *.apk
+
+# Android 签名材料：密钥库和口令绝不能进仓库
+*.keystore
+*.jks
+keystore.properties

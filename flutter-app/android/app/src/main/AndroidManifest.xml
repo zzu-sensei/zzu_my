@@ -2,6 +2,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 电量巡检使用精确闹钟，避免 Doze 把检查推迟数小时。Android 12 起若系统
+         未授予该权限，代码会自动退回允许空闲窗口的非精确闹钟。 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <application
         android:label="郑大生活助手"
         android:name="com.chaquo.python.android.PyApplication"

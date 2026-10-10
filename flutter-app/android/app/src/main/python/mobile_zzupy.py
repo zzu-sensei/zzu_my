@@ -21,6 +21,8 @@ import gmalg
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 
+import mobile_plan_page
+
 
 def _message(data: dict, fallback: str) -> str:
     return str(data.get("message") or data.get("msg") or fallback)
@@ -419,6 +421,10 @@ class MobileWebEASClient:
     TOKEN_LOGIN = "https://cas.s.zzu.edu.cn/cas/t/login"
     STUDENT_SSO = "https://jwxt.zzu.edu.cn/student/sso/login"
     SHEET_BASE = "https://jwxt.zzu.edu.cn/student/for-std/grade/sheet"
+    #: 培养计划完成情况预览。数据内联在页面里，不是单独的 XHR 接口。
+    PROGRAM_PREVIEW = (
+        "https://jwxt.zzu.edu.cn/student/for-std/program-completion-preview"
+    )
     USER_AGENT = (
         "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 "
         "Chrome/131.0 Mobile Safari/537.36"
@@ -510,6 +516,37 @@ class MobileWebEASClient:
         if self._looks_like_login(response):
             raise RuntimeError("教务网页会话已失效，请重新登录。")
         return response
+
+    def get_program_plan(self, student_id: int | None = None) -> dict:
+        """获取培养计划（学分要求、各模块完成度、未通过/在修课程）。
+
+        计划数据是**服务端渲染**在该页面里的，以 JavaScript 对象字面量内联在
+        ``<script>var model = {...}</script>`` 中（不是 JSON，也不是另外的
+        XHR 接口），因此这里取页面后用 ``mobile_plan_page`` 解析。
+
+        Args:
+            student_id: 教务网页端的学生内部 ID。不传时先访问一次基础地址，
+                从重定向后的 URL 里解析。
+        """
+        target = student_id or self.student_id
+        if target is None:
+            # 基础地址通常会重定向到 .../info/{studentId}，从中解析出 ID。
+            probe = self.client.get(self.PROGRAM_PREVIEW, headers=self.headers)
+            probe.raise_for_status()
+            if self._looks_like_login(probe):
+                raise RuntimeError("教务网页会话已失效，请重新登录。")
+            target = self._student_id(str(probe.url), probe.text)
+            if target is None:
+                raise RuntimeError("未能确定培养计划页面的学生 ID。")
+
+        url = f"{self.PROGRAM_PREVIEW}/info/{target}"
+        response = self.client.get(url, headers=self.headers)
+        response.raise_for_status()
+        if self._looks_like_login(response):
+            raise RuntimeError("教务网页会话已失效，请重新登录。")
+
+        plan = mobile_plan_page.parse_plan_page(response.text)
+        return mobile_plan_page.summarize_plan(plan)
 
     def get_transcript(self) -> tuple[bytes, str]:
         response = self._get(

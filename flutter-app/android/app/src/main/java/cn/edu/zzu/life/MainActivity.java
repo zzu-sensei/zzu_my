@@ -39,6 +39,15 @@ public class MainActivity extends FlutterActivity {
         super.configureFlutterEngine(flutterEngine);
         new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
             .setMethodCallHandler(this::handleCall);
+        // 应用每次启动都重排巡检闹钟：只靠开机广播会导致应用更新后闹钟链断掉，
+        // 巡检从此不再触发。
+        executor.execute(() -> {
+            try {
+                MonitorScheduler.reschedule(getApplicationContext());
+            } catch (Exception ignored) {
+                // 重排失败不影响应用启动。
+            }
+        });
     }
 
     private void handleCall(MethodCall call, MethodChannel.Result result) {
@@ -104,6 +113,9 @@ public class MainActivity extends FlutterActivity {
                 case "getGradeRankDocument":
                     payload = callSession("get_grade_rank_document");
                     break;
+                case "getProgramPlan":
+                    payload = callSession("get_program_plan");
+                    break;
                 case "getSchedule":
                     payload = callSession(
                         "get_schedule", number(args, "week"), number(args, "semester_id")
@@ -111,6 +123,7 @@ public class MainActivity extends FlutterActivity {
                     break;
                 case "getEnergy":
                     payload = callSession("get_energy");
+                    recordEnergySamples(payload);
                     break;
                 case "rechargeEnergy":
                     payload = callSession(
@@ -123,6 +136,16 @@ public class MainActivity extends FlutterActivity {
                     break;
                 case "getMonitorSettings":
                     payload = MonitorSettings.toJson(this);
+                    break;
+                case "getEnergySamples":
+                    payload = new JSONObject();
+                    payload.put("ok", true);
+                    payload.put("samples", MonitorSettings.readSamples(this));
+                    break;
+                case "clearEnergySamples":
+                    MonitorSettings.clearEnergySamples(this);
+                    payload = new JSONObject();
+                    payload.put("ok", true);
                     break;
                 case "saveMonitorSettings":
                     MonitorSettings.update(this, args);
@@ -165,6 +188,25 @@ public class MainActivity extends FlutterActivity {
         String[] stored = SessionStore.load(this);
         if (stored == null) throw new IllegalStateException("登录已失效，请重新登录");
         return PythonGateway.callWithSession(new PythonGateway.ContextSession(stored), method, args);
+    }
+
+    /**
+     * 把刚查到的电量记一次采样。
+     *
+     * 前台查询与后台巡检都走这里，保证「只要查过就有采样」，用户不必为了估算
+     * 耗电速度而额外等待后台巡检。
+     */
+    private void recordEnergySamples(JSONObject payload) {
+        if (payload == null || !payload.optBoolean("ok")) return;
+        try {
+            MonitorSettings.recordEnergySamples(
+                this,
+                payload.optJSONArray("meter_list"),
+                System.currentTimeMillis()
+            );
+        } catch (Exception ignored) {
+            // 采样失败不影响查询结果。
+        }
     }
 
     @SuppressWarnings("unchecked")

@@ -532,7 +532,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final pages = <Widget>[
-      const GradesPage(),
+      const GradesHubPage(),
       const SchedulePage(),
       const EnergyPage(),
       const WidgetsPage(),
@@ -832,6 +832,7 @@ class _GradesPageState extends State<GradesPage> {
     }
     if (mounted) setState(() => loading = false);
   }
+
 
   Future<void> printGradeDocument(String method) async {
     setState(() => printing = true);
@@ -1287,6 +1288,559 @@ class _GradeCardState extends State<GradeCard> {
     );
   }
 }
+/// 「成绩」入口的双标签容器：成绩 / 培养计划。
+///
+/// 不往底部导航加第 5 个标签（窄屏会挤），而是把这个入口做成两个子页面。
+class GradesHubPage extends StatefulWidget {
+  const GradesHubPage({super.key});
+  @override
+  State<GradesHubPage> createState() => _GradesHubPageState();
+}
+
+class _GradesHubPageState extends State<GradesHubPage> {
+  int tab = 0;
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+          child: GlassPanel(
+            radius: 20,
+            padding: const EdgeInsets.all(5),
+            child: Row(
+              children: [
+                for (var i = 0; i < 2; i++)
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(15),
+                      onTap: () => setState(() => tab = i),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        padding: const EdgeInsets.symmetric(vertical: 9),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(15),
+                          gradient: tab == i
+                              ? LinearGradient(
+                                  colors: [
+                                    mint.withValues(alpha: .26),
+                                    aqua.withValues(alpha: .14),
+                                  ],
+                                )
+                              : null,
+                        ),
+                        child: Text(
+                          i == 0 ? '成绩' : '培养计划',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                            color: tab == i ? ink : muted,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        Expanded(
+          child: IndexedStack(
+            index: tab,
+            children: const [GradesPage(), ProgramPlanPage()],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 培养计划完成情况（独立页面）。
+///
+/// 数据来自教务「培养计划完成情况预览」，学分与完成度都是教务给出的官方口径，
+/// 不再自行统计成绩。
+class ProgramPlanPage extends StatefulWidget {
+  const ProgramPlanPage({super.key});
+  @override
+  State<ProgramPlanPage> createState() => _ProgramPlanPageState();
+}
+
+class _ProgramPlanPageState extends State<ProgramPlanPage> {
+  Map<String, dynamic>? plan;
+  bool loading = true;
+  String? error;
+
+  /// 0 = 按学期，1 = 按学分模块。
+  int viewMode = 0;
+
+  /// 展开的学期序号（默认展开第一个有未通过/在修的学期）。
+  final Set<int> expandedSemesters = {};
+
+  @override
+  void initState() {
+    super.initState();
+    load();
+  }
+
+  Future<void> load() async {
+    setState(() {
+      loading = true;
+      error = null;
+    });
+    try {
+      final result = await NativeApi.call('getProgramPlan');
+      if (!mounted) return;
+      setState(() {
+        plan = result;
+        // 默认展开最早一个还有未通过/在修的学期，其余收起，避免一屏太长。
+        expandedSemesters.clear();
+        for (final semester in ((result['semesters'] as List?) ?? const [])
+            .whereType<Map>()) {
+          final pending =
+              ((semester['failed_count'] as num?)?.toInt() ?? 0) +
+              ((semester['taking_count'] as num?)?.toInt() ?? 0);
+          if (pending > 0) {
+            expandedSemesters.add((semester['semester'] as num?)?.toInt() ?? 0);
+            break;
+          }
+        }
+      });
+    } catch (caught) {
+      if (mounted) setState(() => error = caught.toString());
+    }
+    if (mounted) setState(() => loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final modules = ((plan?['modules'] as List?) ?? const [])
+        .whereType<Map>()
+        .toList();
+    final semesters = ((plan?['semesters'] as List?) ?? const [])
+        .whereType<Map>()
+        .toList();
+
+    return Column(
+      children: [
+        PageHeader(
+          eyebrow: 'Training Plan',
+          title: '培养计划',
+          subtitle: plan == null
+              ? '从教务读取官方学分要求与计划课程'
+              : '已通过 ${number(plan!['passed_credits'])} / '
+                    '${number(plan!['required_credits'])} 学分',
+          action: IconButton.filledTonal(
+            onPressed: loading ? null : load,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ),
+        Expanded(
+          child: loading
+              ? const Center(child: Loader())
+              : error != null
+              ? ErrorState(message: error!, retry: load)
+              : RefreshIndicator(
+                  onRefresh: load,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                    children: [
+                      _planSummaryCard(),
+                      const SizedBox(height: 14),
+                      _viewSwitch(),
+                      const SizedBox(height: 12),
+                      if (viewMode == 1) ...[
+                        for (final module in modules) ...[
+                          _moduleCard(module),
+                          const SizedBox(height: 10),
+                        ],
+                      ] else if (semesters.isEmpty)
+                        const GlassPanel(
+                          radius: 20,
+                          padding: EdgeInsets.all(16),
+                          child: Text(
+                            '教务没有返回带学期的课程信息。',
+                            style: TextStyle(color: muted, fontSize: 12),
+                          ),
+                        )
+                      else
+                        for (final semester in semesters) ...[
+                          _semesterCard(semester),
+                          const SizedBox(height: 10),
+                        ],
+                    ],
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _viewSwitch() {
+    const labels = ['按学期', '按学分模块'];
+    return GlassPanel(
+      radius: 18,
+      padding: const EdgeInsets.all(4),
+      child: Row(
+        children: [
+          for (var i = 0; i < labels.length; i++)
+            Expanded(
+              child: InkWell(
+                borderRadius: BorderRadius.circular(14),
+                onTap: () => setState(() => viewMode = i),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    gradient: viewMode == i
+                        ? LinearGradient(
+                            colors: [
+                              mint.withValues(alpha: .26),
+                              aqua.withValues(alpha: .14),
+                            ],
+                          )
+                        : null,
+                  ),
+                  child: Text(
+                    labels[i],
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: viewMode == i ? ink : muted,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _semesterCard(Map semester) {
+    final term = (semester['semester'] as num?)?.toInt() ?? 0;
+    final courses = ((semester['courses'] as List?) ?? const [])
+        .whereType<Map>()
+        .toList();
+    final expanded = expandedSemesters.contains(term);
+    final averageGp = semester['average_gp'];
+    final failedCount = (semester['failed_count'] as num?)?.toInt() ?? 0;
+    final takingCount = (semester['taking_count'] as num?)?.toInt() ?? 0;
+    final passedCount = (semester['passed_count'] as num?)?.toInt() ?? 0;
+
+    return GlassPanel(
+      radius: 20,
+      padding: const EdgeInsets.all(14),
+      tint: failedCount > 0
+          ? const Color(0xFFFF796D)
+          : takingCount > 0
+          ? aqua
+          : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() {
+              if (expanded) {
+                expandedSemesters.remove(term);
+              } else {
+                expandedSemesters.add(term);
+              }
+            }),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        (semester['label'] ?? '未标注学期').toString(),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        [
+                          '${courses.length} 门',
+                          '已通过 ${number(semester['earned_credits'])} 学分',
+                          if (failedCount > 0) '未通过 $failedCount',
+                          if (takingCount > 0) '在修 $takingCount',
+                        ].join(' · '),
+                        style: const TextStyle(color: muted, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+                if (averageGp != null)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          number(averageGp),
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w900,
+                            fontSize: 16,
+                          ),
+                        ),
+                        Text(
+                          // 标出参与平均的学分数，让「按学分加权」这件事可见，
+                          // 否则用户会以为是无权重平均。
+                          '平均绩点 · ${number(semester['graded_credits'])} 学分',
+                          style: const TextStyle(color: muted, fontSize: 9),
+                        ),
+                      ],
+                    ),
+                  ),
+                Icon(
+                  expanded
+                      ? Icons.expand_less_rounded
+                      : Icons.expand_more_rounded,
+                  color: muted,
+                ),
+              ],
+            ),
+          ),
+          if (expanded) ...[
+            const SizedBox(height: 10),
+            for (var i = 0; i < courses.length; i++) ...[
+              if (i > 0)
+                Divider(
+                  height: 14,
+                  color: Colors.white.withValues(alpha: .07),
+                ),
+              _courseRow(courses[i]),
+            ],
+          ] else if (passedCount == courses.length && courses.isNotEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                '该学期全部通过',
+                style: TextStyle(color: muted, fontSize: 11),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _courseRow(Map course) {
+    final status = (course['status'] ?? 'unknown').toString();
+    final gp = course['gp'];
+    final score = (course['score'] ?? '').toString();
+    final color = status == 'failed'
+        ? const Color(0xFFFF9E94)
+        : status == 'taking'
+        ? aqua
+        : ink;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Container(
+            width: 3,
+            height: 26,
+            margin: const EdgeInsets.only(right: 9),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .75),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  (course['name'] ?? '未知课程').toString(),
+                  style: const TextStyle(fontSize: 12.5),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  [
+                    '${number(course['credits'])} 学分',
+                    if ((course['module'] ?? '').toString().isNotEmpty)
+                      (course['module'] ?? '').toString(),
+                    if (status == 'taking') '在修',
+                    if (status == 'failed') '未通过',
+                  ].join(' · '),
+                  style: const TextStyle(color: muted, fontSize: 10),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                score.isEmpty ? '--' : score,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                ),
+              ),
+              Text(
+                gp == null ? '绩点 --' : '绩点 ${number(gp)}',
+                style: const TextStyle(color: muted, fontSize: 10),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _planSummaryCard() {
+    final required = (plan?['required_credits'] as num?)?.toDouble() ?? 0;
+    final passed = (plan?['passed_credits'] as num?)?.toDouble() ?? 0;
+    final taking = (plan?['taking_credits'] as num?)?.toDouble() ?? 0;
+    final failedCredits = (plan?['failed_credits'] as num?)?.toDouble() ?? 0;
+    final missing = (plan?['missing'] as num?)?.toDouble() ?? 0;
+    final ratio = required <= 0 ? 0.0 : (passed / required).clamp(0.0, 1.0);
+
+    return GlassPanel(
+      radius: 24,
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                number(passed),
+                style: const TextStyle(
+                  fontSize: 38,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 3, left: 4),
+                child: Text(
+                  '/ ${number(required)} 学分',
+                  style: const TextStyle(color: muted, fontSize: 13),
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${(ratio * 100).toStringAsFixed(1)}%',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 9,
+              backgroundColor: Colors.white.withValues(alpha: .08),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '还差 ${number(missing)} 学分',
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+          ),
+          if (taking > 0 || failedCredits > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              [
+                if (taking > 0) '在修 ${number(taking)}',
+                if (failedCredits > 0) '未通过 ${number(failedCredits)}',
+              ].join('，') +
+                  ' 学分未计入已通过',
+              style: const TextStyle(color: muted, fontSize: 11),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _moduleCard(Map module) {
+    final required = (module['required_credits'] as num?)?.toDouble() ?? 0;
+    final passed = (module['passed_credits'] as num?)?.toDouble() ?? 0;
+    final taking = (module['taking_credits'] as num?)?.toDouble() ?? 0;
+    final missing = (module['missing'] as num?)?.toDouble() ?? 0;
+    final done = module['done'] == true;
+    final ratio = required <= 0 ? 1.0 : (passed / required).clamp(0.0, 1.0);
+    final note = (module['note'] ?? '').toString();
+
+    return GlassPanel(
+      radius: 20,
+      padding: const EdgeInsets.all(14),
+      tint: done ? mint : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  (module['name'] ?? '模块').toString(),
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+              Text(
+                done ? '已达标' : '还差 ${number(missing)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  color: done ? deep : const Color(0xFFFF9E94),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(5),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 7,
+              backgroundColor: Colors.white.withValues(alpha: .08),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Text(
+                '${number(passed)} / ${number(required)} 学分',
+                style: const TextStyle(color: muted, fontSize: 12),
+              ),
+              if (taking > 0) ...[
+                const SizedBox(width: 10),
+                Text(
+                  '在修 ${number(taking)}',
+                  style: const TextStyle(color: muted, fontSize: 12),
+                ),
+              ],
+            ],
+          ),
+          if (note.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              note,
+              style: const TextStyle(color: muted, fontSize: 11),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
@@ -2005,13 +2559,42 @@ class _EnergyPageState extends State<EnergyPage> {
   bool loading = true;
   bool alertSaving = false;
   bool energyAlertEnabled = false;
-  double energyThreshold = 10;
+  double energyThreshold = 2;
+  bool emailAlertEnabled = false;
+  double emailThreshold = 2;
+  bool emailSecretSet = false;
+  String lastEmailStatus = '尚未发信';
+  List<Map> drainSamples = const [];
+  final TextEditingController emailEndpoint = TextEditingController();
+  final TextEditingController emailSecret = TextEditingController();
   String? error;
   @override
   void initState() {
     super.initState();
     load();
     loadMonitorSettings();
+    loadDrainSamples();
+  }
+
+  Future<void> loadDrainSamples() async {
+    try {
+      final result = await NativeApi.call('getEnergySamples');
+      if (!mounted) return;
+      setState(() {
+        drainSamples = ((result['samples'] as List?) ?? const [])
+            .whereType<Map>()
+            .toList();
+      });
+    } catch (_) {
+      // 采样读取失败不影响电量展示。
+    }
+  }
+
+  @override
+  void dispose() {
+    emailEndpoint.dispose();
+    emailSecret.dispose();
+    super.dispose();
   }
 
   Future<void> loadMonitorSettings() async {
@@ -2021,7 +2604,15 @@ class _EnergyPageState extends State<EnergyPage> {
       setState(() {
         energyAlertEnabled = settings['energy_enabled'] == true;
         energyThreshold =
-            (settings['energy_threshold'] as num?)?.toDouble() ?? 10;
+            (settings['energy_threshold'] as num?)?.toDouble() ?? 2;
+        emailAlertEnabled = settings['energy_email_enabled'] == true;
+        emailThreshold =
+            (settings['energy_email_threshold'] as num?)?.toDouble() ?? 2;
+        emailSecretSet = settings['energy_email_secret_set'] == true;
+        lastEmailStatus =
+            settings['last_email_status']?.toString() ?? '尚未发信';
+        emailEndpoint.text =
+            settings['energy_email_endpoint']?.toString() ?? '';
       });
     } catch (_) {}
   }
@@ -2032,18 +2623,71 @@ class _EnergyPageState extends State<EnergyPage> {
       if (threshold != null) energyThreshold = threshold;
       alertSaving = true;
     });
-    try {
-      await NativeApi.call('saveMonitorSettings', {
-        'energy_enabled': energyAlertEnabled,
-        'energy_threshold': energyThreshold,
+    await _saveMonitorSettings({
+      'energy_enabled': energyAlertEnabled,
+      'energy_threshold': energyThreshold,
+    });
+  }
+
+  Future<void> saveEmailAlert({
+    bool? enabled,
+    double? threshold,
+    bool includeCredentials = false,
+  }) async {
+    setState(() {
+      if (enabled != null) emailAlertEnabled = enabled;
+      if (threshold != null) emailThreshold = threshold;
+      alertSaving = true;
+    });
+    final payload = <String, Object?>{
+      'energy_email_enabled': emailAlertEnabled,
+      'energy_email_threshold': emailThreshold,
+    };
+    if (includeCredentials) {
+      final endpoint = emailEndpoint.text.trim();
+      final secret = emailSecret.text.trim();
+      if (emailAlertEnabled && (endpoint.isEmpty || secret.isEmpty)) {
+        if (mounted) {
+          setState(() => alertSaving = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('请先填写发信接口地址与提醒密钥')),
+          );
+        }
+        return;
+      }
+      payload['energy_email_endpoint'] = endpoint;
+      // 留空表示不修改已保存的密钥。
+      if (secret.isNotEmpty) payload['energy_email_secret'] = secret;
+    }
+    final saved = await _saveMonitorSettings(payload);
+    if (saved && mounted) {
+      setState(() {
+        if (includeCredentials && emailSecret.text.trim().isNotEmpty) {
+          emailSecretSet = true;
+        }
+        emailSecret.clear();
       });
+    }
+  }
+
+  Future<bool> _saveMonitorSettings(Map<String, Object?> payload) async {
+    try {
+      final result = await NativeApi.call('saveMonitorSettings', payload);
+      if (mounted) {
+        final status = result['last_email_status']?.toString();
+        if (status != null) setState(() => lastEmailStatus = status);
+      }
+      return true;
     } catch (caught) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(caught.toString())));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(caught.toString())),
+        );
       }
+      return false;
+    } finally {
+      if (mounted) setState(() => alertSaving = false);
     }
-    if (mounted) setState(() => alertSaving = false);
   }
 
   Future<void> load() async {
@@ -2056,6 +2700,8 @@ class _EnergyPageState extends State<EnergyPage> {
     } catch (caught) {
       error = caught.toString();
     }
+    // 原生侧在查询成功时会顺手记一次采样，这里重新读一下好让估算立刻刷新。
+    await loadDrainSamples();
     if (mounted) setState(() => loading = false);
   }
 
@@ -2263,6 +2909,7 @@ class _EnergyPageState extends State<EnergyPage> {
     final isLow =
         energyAlertEnabled &&
         remaining.any((value) => value <= energyThreshold);
+    final drain = estimateDrain(drainSamples);
     return Column(
       children: [
         PageHeader(
@@ -2364,11 +3011,11 @@ class _EnergyPageState extends State<EnergyPage> {
                                   ),
                                   Expanded(
                                     child: Slider(
-                                      value: energyThreshold.clamp(1, 100),
-                                      min: 1,
-                                      max: 100,
+                                      value: energyThreshold.clamp(0.5, 50),
+                                      min: 0.5,
+                                      max: 50,
                                       divisions: 99,
-                                      label: '${energyThreshold.round()} 度',
+                                      label: '${number(energyThreshold)} 度',
                                       onChanged: alertSaving
                                           ? null
                                           : (value) => setState(
@@ -2382,9 +3029,9 @@ class _EnergyPageState extends State<EnergyPage> {
                                     ),
                                   ),
                                   SizedBox(
-                                    width: 48,
+                                    width: 56,
                                     child: Text(
-                                      '${energyThreshold.round()} 度',
+                                      '${number(energyThreshold)} 度',
                                       textAlign: TextAlign.end,
                                       style: const TextStyle(
                                         color: ink,
@@ -2392,6 +3039,199 @@ class _EnergyPageState extends State<EnergyPage> {
                                         fontWeight: FontWeight.w800,
                                       ),
                                     ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      GlassPanel(
+                        radius: 22,
+                        padding: const EdgeInsets.all(15),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(
+                                  Icons.speed_rounded,
+                                  color: mint,
+                                  size: 20,
+                                ),
+                                SizedBox(width: 9),
+                                Text(
+                                  '耗电速度',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                Spacer(),
+                                Text(
+                                  '本次检查已记一次采样',
+                                  style: TextStyle(color: muted, fontSize: 10),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            if (drain.isEmpty)
+                              const Text(
+                                '还没有采样数据。多查几次电量（或开启后台巡检）'
+                                '即可估算还能用多久。',
+                                style: TextStyle(color: muted, fontSize: 12),
+                              )
+                            else
+                              for (final item in drain) ...[
+                                Text(
+                                  formatDrainLine(item),
+                                  style: TextStyle(
+                                    color: item.daysLeft == null ? muted : ink,
+                                    fontSize: 12,
+                                    height: 1.6,
+                                  ),
+                                ),
+                              ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      GlassPanel(
+                        radius: 22,
+                        padding: const EdgeInsets.all(15),
+                        tint: emailAlertEnabled ? mint : null,
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  emailAlertEnabled
+                                      ? Icons.mark_email_read_outlined
+                                      : Icons.mail_outline_rounded,
+                                  color: mint,
+                                ),
+                                const SizedBox(width: 11),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        '低电量邮件提醒',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                      Text(
+                                        emailAlertEnabled
+                                            ? '低于 ${number(emailThreshold)} 度时请求服务端发信'
+                                            : '打开后低于阈值会往邮箱发一封提醒',
+                                        style: const TextStyle(
+                                          color: muted,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Switch(
+                                  value: emailAlertEnabled,
+                                  onChanged: alertSaving
+                                      ? null
+                                      : (value) => saveEmailAlert(
+                                          enabled: value,
+                                          includeCredentials: value,
+                                        ),
+                                ),
+                              ],
+                            ),
+                            if (emailAlertEnabled) ...[
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const Text(
+                                    '发信阈值',
+                                    style: TextStyle(
+                                      color: muted,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Slider(
+                                      value: emailThreshold.clamp(0.5, 50),
+                                      min: 0.5,
+                                      max: 50,
+                                      divisions: 99,
+                                      label: '${number(emailThreshold)} 度',
+                                      onChanged: alertSaving
+                                          ? null
+                                          : (value) => setState(
+                                              () => emailThreshold = value,
+                                            ),
+                                      onChangeEnd: alertSaving
+                                          ? null
+                                          : (value) => saveEmailAlert(
+                                              threshold: value,
+                                            ),
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: 56,
+                                    child: Text(
+                                      '${number(emailThreshold)} 度',
+                                      textAlign: TextAlign.end,
+                                      style: const TextStyle(
+                                        color: ink,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              TextField(
+                                controller: emailEndpoint,
+                                keyboardType: TextInputType.url,
+                                autocorrect: false,
+                                decoration: const InputDecoration(
+                                  labelText: '发信接口地址',
+                                  hintText:
+                                      'https://你的域名/api/energy-alert',
+                                  isDense: true,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              TextField(
+                                controller: emailSecret,
+                                obscureText: true,
+                                autocorrect: false,
+                                decoration: InputDecoration(
+                                  labelText: '提醒密钥',
+                                  hintText: emailSecretSet
+                                      ? '已保存，留空表示不修改'
+                                      : '与服务端 ZZU_ALERT_SECRET 一致',
+                                  isDense: true,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      '上次发信：$lastEmailStatus',
+                                      style: const TextStyle(
+                                        color: muted,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                                  TextButton(
+                                    onPressed: alertSaving
+                                        ? null
+                                        : () => saveEmailAlert(
+                                            includeCredentials: true,
+                                          ),
+                                    child: const Text('保存'),
                                   ),
                                 ],
                               ),
@@ -2772,6 +3612,206 @@ String number(Object? value) {
       .toStringAsFixed(2)
       .replaceFirst(RegExp(r'0+$'), '')
       .replaceFirst(RegExp(r'\.$'), '');
+}
+
+/// 电量耗电速度的估算结果，字段含义与 Python 侧
+/// `zzupy.energy_history.DrainEstimate` 保持一致。
+class DrainEstimate {
+  const DrainEstimate({
+    required this.label,
+    required this.meterId,
+    required this.latest,
+    required this.ratePerDay,
+    required this.daysLeft,
+    required this.samples,
+    required this.windowHours,
+    this.note = '',
+  });
+
+  final String label;
+  final String meterId;
+  final double latest;
+  final double ratePerDay;
+  final double? daysLeft;
+  final int samples;
+  final double windowHours;
+  final String note;
+}
+
+/// 采样时间跨度下限（小时）。少于这个跨度不足以拟合。
+const double drainMinWindowHours = 6;
+
+/// 回看窗口（天）。
+const int drainWindowDays = 7;
+
+/// 拟合出的速度小于该值（度/天）时视为几乎不耗电。
+const double drainNegligibleRate = 0.01;
+
+/// 把天数格式化成人能读的形式。
+String formatDays(double days) {
+  if (days < 1) {
+    final hours = days * 24;
+    if (hours < 1) return '${(hours * 60).round()} 分钟';
+    return '${hours.toStringAsFixed(1)} 小时';
+  }
+  if (days < 10) return '${days.toStringAsFixed(1)} 天';
+  return '${days.round()} 天';
+}
+
+/// 按电表分组估算耗电速度。
+///
+/// 算法与 Python 侧一致：以最早采样为原点做最小二乘拟合，斜率的相反数即日均
+/// 耗电量；窗口内不足两点、跨度不足 6 小时、电量为上升趋势（刚充值）或几乎
+/// 不耗电时都不给出天数估计，而是在 [DrainEstimate.note] 里说明原因。
+List<DrainEstimate> estimateDrain(
+  List<Map> samples, {
+  int nowMillis = 0,
+  int windowDays = drainWindowDays,
+}) {
+  final now = nowMillis == 0
+      ? DateTime.now().millisecondsSinceEpoch
+      : nowMillis;
+  final cutoff = now - windowDays * 86400 * 1000;
+
+  // 按电表归集窗口内的采样。
+  final grouped = <String, List<Map>>{};
+  for (final raw in samples) {
+    final t = (raw['t'] as num?)?.toDouble();
+    final q = (raw['q'] as num?)?.toDouble();
+    if (t == null || q == null) continue;
+    if (t < cutoff) continue;
+    final id = (raw['id'] ?? '').toString();
+    grouped.putIfAbsent(id, () => []).add({'t': t, 'q': q, 'label': raw['label']});
+  }
+
+  final results = <DrainEstimate>[];
+  grouped.forEach((meterId, items) {
+    items.sort((a, b) => (a['t'] as double).compareTo(b['t'] as double));
+    final label = (items.last['label'] ?? '寝室电表').toString();
+    final latest = items.last['q'] as double;
+
+    if (items.length < 2) {
+      results.add(
+        DrainEstimate(
+          label: label,
+          meterId: meterId,
+          latest: latest,
+          ratePerDay: 0,
+          daysLeft: null,
+          samples: items.length,
+          windowHours: 0,
+          note: '只有一个采样点，多查几次即可估算',
+        ),
+      );
+      return;
+    }
+
+    final origin = items.first['t'] as double;
+    final windowHours =
+        ((items.last['t'] as double) - origin) / 1000 / 3600;
+    if (windowHours < drainMinWindowHours) {
+      results.add(
+        DrainEstimate(
+          label: label,
+          meterId: meterId,
+          latest: latest,
+          ratePerDay: 0,
+          daysLeft: null,
+          samples: items.length,
+          windowHours: windowHours,
+          note: '时间跨度不足 ${number(drainMinWindowHours)} 小时，继续采样中',
+        ),
+      );
+      return;
+    }
+
+    final xs = items
+        .map((item) => ((item['t'] as double) - origin) / 1000 / 86400)
+        .toList();
+    final ys = items.map((item) => item['q'] as double).toList();
+    final count = xs.length;
+    final meanX = xs.reduce((a, b) => a + b) / count;
+    final meanY = ys.reduce((a, b) => a + b) / count;
+    var denominator = 0.0;
+    var numerator = 0.0;
+    for (var i = 0; i < count; i++) {
+      denominator += (xs[i] - meanX) * (xs[i] - meanX);
+      numerator += (xs[i] - meanX) * (ys[i] - meanY);
+    }
+    if (denominator <= 0) {
+      results.add(
+        DrainEstimate(
+          label: label,
+          meterId: meterId,
+          latest: latest,
+          ratePerDay: 0,
+          daysLeft: null,
+          samples: count,
+          windowHours: windowHours,
+          note: '采样时间重合，无法拟合',
+        ),
+      );
+      return;
+    }
+
+    final rate = -(numerator / denominator);
+    if (rate.abs() < drainNegligibleRate) {
+      results.add(
+        DrainEstimate(
+          label: label,
+          meterId: meterId,
+          latest: latest,
+          ratePerDay: rate.abs(),
+          daysLeft: null,
+          samples: count,
+          windowHours: windowHours,
+          note: '几乎没有耗电',
+        ),
+      );
+      return;
+    }
+    if (rate < 0) {
+      results.add(
+        DrainEstimate(
+          label: label,
+          meterId: meterId,
+          latest: latest,
+          ratePerDay: 0,
+          daysLeft: null,
+          samples: count,
+          windowHours: windowHours,
+          note: '期间电量没有下降（可能刚充值），暂不估算',
+        ),
+      );
+      return;
+    }
+
+    results.add(
+      DrainEstimate(
+        label: label,
+        meterId: meterId,
+        latest: latest,
+        ratePerDay: rate,
+        daysLeft: latest > 0 ? latest / rate : 0,
+        samples: count,
+        windowHours: windowHours,
+      ),
+    );
+  });
+
+  results.sort((a, b) => a.label.compareTo(b.label));
+  return results;
+}
+
+/// 把估算结果渲染成一行中文说明。
+String formatDrainLine(DrainEstimate estimate) {
+  if (estimate.daysLeft == null) {
+    final detail = estimate.note.isEmpty ? '' : '（${estimate.note}）';
+    return '${estimate.label}：${number(estimate.latest)} 度，暂无法估算耗电速度$detail';
+  }
+  return '${estimate.label}：${number(estimate.latest)} 度，'
+      '日均 ${estimate.ratePerDay.toStringAsFixed(2)} 度，'
+      '约还能用 ${formatDays(estimate.daysLeft!)}';
 }
 
 String fixed4(Object? value) {

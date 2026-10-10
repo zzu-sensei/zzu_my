@@ -26,6 +26,7 @@ flutter build apk --release --target-platform android-arm64
 - 统一认证密码不落盘；会话令牌使用 Android Keystore 支持的加密存储。
 - 电费支付密码仅用于当次请求，不保存。
 - 成绩监测和电量预警由 Android 后台任务按用户设置发起。
+- 低电量邮件由服务端发送：手机只上报电表读数，**不保存邮件服务商的 API Key**；手机上只保存发信接口地址与调用该接口的共享密钥。
 - 提交问题时请勿上传学号、密码、Token、完整响应或包含个人信息的截图。
 
 完整说明见仓库根目录的 `README.md`、`PRIVACY.md` 与 `SECURITY.md`。

@@ -1,9 +1,28 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("com.chaquo.python")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+// 稳定的签名配置。默认的 debug 密钥库位于 ~/.android/debug.keystore，换机器或
+// 改过 ANDROID_USER_HOME 时 Android 会重新生成一份**不同**的密钥，导致新包无法
+// 覆盖安装（INSTALL_FAILED_UPDATE_INCOMPATIBLE）。因此这里优先读取
+// keystore.properties 指定的固定密钥库，没有该文件才回退到默认 debug 签名。
+//
+// 本仓库不包含密钥库本体；请在 keystore.properties 里填写自己机器上的路径。
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.inputStream().use { stream ->
+        keystoreProperties.load(stream)
+    }
+}
+val customKeystorePath: String? = keystoreProperties.getProperty("storeFile")
+val hasCustomKeystore: Boolean =
+    customKeystorePath != null && file(customKeystorePath).exists()
 
 android {
     namespace = "cn.edu.zzu.life"
@@ -32,11 +51,26 @@ android {
         }
     }
 
+    if (hasCustomKeystore) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(customKeystorePath!!)
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // 固定签名优先；未配置时沿用默认 debug 签名，保证 `flutter run --release`
+            // 在没有 keystore.properties 的机器上也能跑通。
+            signingConfig = if (hasCustomKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

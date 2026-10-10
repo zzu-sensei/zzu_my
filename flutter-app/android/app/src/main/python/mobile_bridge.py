@@ -438,6 +438,23 @@ def get_grade_rank_document(account: str, user_token: str, refresh_token: str) -
     return _with_cas(account, user_token, refresh_token, operation)
 
 
+def get_program_plan(account: str, user_token: str, refresh_token: str) -> str:
+    """获取培养计划完成情况（独立页面用）。
+
+    网页端登录后抓取「培养计划完成情况预览」页面并解析。数据内联在页面里，
+    不需要额外的接口。
+    """
+    def operation(cas: MobileCASClient) -> dict[str, Any]:
+        web = MobileWebEASClient(cas)
+        try:
+            web.login()
+            return web.get_program_plan()
+        finally:
+            web.close()
+
+    return _with_cas(account, user_token, refresh_token, operation)
+
+
 def get_semesters(account: str, user_token: str, refresh_token: str) -> str:
     def operation(cas: MobileCASClient) -> dict[str, Any]:
         eas = MobileEASClient(cas)
@@ -735,3 +752,4 @@ def recharge_energy(
             ecard.close()
 
     return _with_cas(account, user_token, refresh_token, operation)
+
