@@ -50,25 +50,13 @@ npm run build
 uv run zensical build
 ```
 
-Android：
+Android 客户端在**另一个仓库**：<https://github.com/zzu-sensei/zzu-life-android>。
+本仓库不再包含 `flutter-app/`，也不接受安卓构建配置或 APK 工作流的改动。
 
-```bash
-cd flutter-app
-flutter pub get
-flutter analyze
-flutter build apk --release --target-platform android-arm64
-```
-
-Android 构建需要 JDK 17、Android SDK 35 和 Python 3.12。若 Python 不在 `PATH`，可在本机设置 `CHAQUOPY_BUILD_PYTHON`，不要把本机绝对路径提交到仓库。
-
-签名配置见 `flutter-app/android/keystore.properties.example`：`keystore.properties` 是
-gitignored 的，不要提交真实密钥库。**签名密钥一旦更换，已安装用户必须卸载重装
-（会丢失应用数据）**，所以请妥善保管，不要重新生成。
-
-手机端 Python（`flutter-app/android/app/src/main/python/`）与主机端 `zzupy` 是**两套
-并行实现**，规则必须一致。`zzupy.logging` 依赖 `loguru`，未打包进 App，手机端不要
-导入它。修改两端共有的规则时，请加一个把同一份夹具喂给两边、断言结果相同的
-一致性测试（参考 `scripts/test_mobile_plan_page.py`）。
+如果你改的是两端共有的规则（培养计划解析、通过判定、绩点算法），请**两个仓库都改**，
+并让各自的测试保持同步：本仓库是 `scripts/test_plan_progress.py`，那边是
+`scripts/test_mobile_plan.py`。手机端的 `mobile_zzupy.py` / `mobile_plan_page.py` 是
+**并行实现**——因为 `zzupy.logging` 依赖 `loguru`，而 `loguru` 没有打包进 App。
 
 
 ## Pull Request

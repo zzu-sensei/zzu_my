@@ -2,9 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-%3E%3D3.11-blue.svg)](pyproject.toml)
-[![Flutter](https://img.shields.io/badge/Flutter-3.47.5-54C5F8.svg)](flutter-app/README.md)
 
-豫见郑大相关服务的 Python API 封装、网页端与 Android 客户端。
+豫见郑大相关服务的 Python API 封装与网页端。安卓客户端见
+[zzu-life-android](https://github.com/zzu-sensei/zzu-life-android)。
 
 > [!IMPORTANT]
 > 本项目由社区独立维护，与郑州大学及相关服务提供方无隶属或授权关系。接口可能随学校系统调整而失效；请仅在本人账号和授权范围内使用，并遵守学校规定。
@@ -179,14 +179,20 @@ export ZZU_ENERGY_THRESHOLD=2
 
 - 提供 `app` 与 `web` 下主要客户端的异步版本
 
-## 网页与安卓端
+## 网页端
 
 - 生产网站：<https://zzu.ylyg.eu.org>
-- `flutter-app/` 是当前 Android 客户端，不加载或依赖生产网站；登录、成绩、课表和寝室电量请求均从手机本地发往学校接口。
-- 客户端采用 Flutter 液态玻璃界面；Android 平台通道复用本地 Chaquopy/ZZU.Py、加密会话和桌面小组件。
-- 安卓端内置针对移动环境精简的 ZZU.Py 协议桥接与 Python 3.12 运行时，提供本地加密会话、按学期分组的成绩与打印、自动定位当前教学周的周课表、照明/空调双电表识别、电费充值双重确认、低电量邮件提醒，以及“今日课表”和“寝室电量”桌面小组件。支付密码仅参与当次本地加密请求，不会保存。
-- 电量预警使用精确闹钟并在每次巡检后重排下一次，应用启动时也会重排，避免更新后闹钟链断掉。邮件由服务端发送，手机只上报读数。
-- 当前直装包仅包含主流 `arm64-v8a` 架构，并使用 Android 调试证书签署，仅供侧载测试，不适用于应用商店发布。源码构建说明见 [`flutter-app/README.md`](flutter-app/README.md)。
+- 网页端由 `api/`（Vercel 上的 FastAPI 函数）与 `src/`（前端）组成，两者都直接依赖本仓库的 `zzupy/`。
+- 服务端负责概率性任务与无需本地凭据的功能：低电量邮件提醒、按房间读取寝室电量等。
+- 部署：Vercel 读取 `vercel.json`；`vercel.json` 中的定时任务用于服务端自巡检。
+
+## 安卓客户端
+
+安卓客户端已独立到单独仓库：<https://github.com/zzu-sensei/zzu-life-android>
+
+它不加载或依赖生产网站——登录、成绩、课表、培养计划和寝室电量请求都从手机本地
+发往学校接口，内置精简版 ZZU.Py 协议桥接与 Python 3.12 运行时。本仓库不再包含
+`flutter-app/` 或任何安卓构建配置。
 
 ## 隐私与安全
 

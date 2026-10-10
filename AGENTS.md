@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-- This repository is `zzupy`, a Python library that wraps Zhengzhou University mobile-app and web services. It also ships a Flutter Android app (`flutter-app/`), a FastAPI backend deployed to Vercel (`api/`), and Zensical documentation (`docs/`).
+- This repository is `zzupy`, a Python library that wraps Zhengzhou University mobile-app and web services, plus the Vercel-hosted web client (`api/` + `src/`) and Zensical documentation (`docs/`). The Android client is a separate repository — see below.
 - Main public modules live under `zzupy/app`, `zzupy/web`, and `zzupy/aio`.
 - Sync and async clients intentionally mirror each other. When changing behavior in `zzupy/app` or `zzupy/web`, check whether the same change is also needed in the corresponding `zzupy/aio` module.
 - Data contracts are centralized in `zzupy/model`. Shared helpers live in `zzupy/utils.py`, and project-specific exceptions live in `zzupy/exception.py`.
@@ -36,34 +36,12 @@
 - Lint scope is `zzupy` only. `api/index.py` intentionally has a few `E402` findings from its `sys.path.insert` pattern; leave them.
 - Docs use **Zensical** (`zensical.toml`, not MkDocs). Update `docs/` and `zensical.toml` nav for user-facing changes, and keep `llms.txt` in sync when project guidance changes.
 
-## Android App (`flutter-app/`)
+## Android Client Lives Elsewhere
 
-- Flutter app with a Chaquopy Python 3.12 side. Three Python namespaces matter:
-  - `flutter-app/lib/main.dart` — the whole Flutter UI (single large file; page classes are top level).
-  - `flutter-app/android/app/src/main/java/cn/edu/zzu/life/` — `MainActivity.java` (platform channel dispatch), `MonitorScheduler.java` / `MonitorSettings.java` (background jobs and preferences).
-  - `flutter-app/android/app/src/main/python/` — `mobile_bridge.py` (channel entry points), `mobile_zzupy.py` (clients), and per-feature helpers.
-- **The host Python and the phone Python are separate implementations that must agree.** `mobile_zzupy.py` / `mobile_plan_page.py` deliberately reimplement logic from `zzupy/app`, `zzupy/web`, and `zzupy/plan.py` because `zzupy.logging` needs `loguru`, which is **not** bundled into the app. Never import `zzupy.logging` (or modules that pull it in) from `android/app/src/main/python/`.
-- When you change a rule in both places, add a parity test that feeds the same fixture to both implementations and asserts identical results. See `scripts/test_mobile_plan_page.py` for the pattern.
-- Adding a channel method takes four edits: the Python `mobile_bridge.py` function, the `MainActivity.java` `case`, the Dart `NativeApi.call('...')`, and the UI.
-
-### Building the APK (Windows)
-
-The toolchain is pinned outside the repo. `flutter-app/android/gradle.properties` and `local.properties` already point at it; set these before building:
-
-```powershell
-$env:JAVA_HOME         = "E:\dev-tools\jdk-17.0.20.1+1"
-$env:GRADLE_USER_HOME  = "E:\dev-tools\gradle-home"
-$env:ANDROID_SDK_ROOT  = "E:\dev-tools\android-sdk"
-$env:PUB_CACHE         = "D:\code\.flutter-pub-cache"
-$env:PATH = "E:\dev-tools\jdk-17.0.20.1+1\bin;D:\code\.flutter-sdk-good\flutter\bin;" + $env:PATH
-cd flutter-app
-flutter build apk --release --target-platform android-arm64
-```
-
-- Builds take ~70s when the Gradle cache is warm. If a build hangs with no file writes, check `android/local.properties` — a wrong `sdk.dir` makes AGP try to download the NDK.
-- **Signing:** `android/keystore.properties` (gitignored, template in `keystore.properties.example`) points at `E:\dev-tools\keys\zzu-life-debug.keystore`. Keep this file — if the key changes, `adb install -r` fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE` and users must uninstall (losing app data).
-- Always bump `version:` in `flutter-app/pubspec.yaml` for a release; same `versionName` overwrites in place.
-- Archive to `release/ZZU-Life-Flutter-<version>-arm64.apk`, then `adb install -r` for an in-place upgrade.
+- The Android client is a **separate repository**: <https://github.com/zzu-sensei/zzu-life-android>. It is not a subdirectory here any more.
+- Its Python side (`mobile_zzupy.py`, `mobile_plan_page.py`) **reimplements** logic from `zzupy/app`, `zzupy/web`, and `zzupy/plan.py`, because `zzupy.logging` needs `loguru`, which is not bundled into the app. This repository cannot import or test the mobile code.
+- When you change a shared rule (plan parsing, pass/fail classification, grade-point maths), change it in **both** repositories and keep their tests in sync. The mobile parser guards itself with `scripts/test_mobile_plan.py` over there.
+- Do not re-add `flutter-app/`, Android build config, or APK workflows to this repository.
 
 ## Code Conventions
 
